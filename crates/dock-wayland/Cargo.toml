@@ -1,0 +1,16 @@
+[package]
+name = "dock-wayland"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dock-core = { path = "../dock-core" }
+dock-render = { path = "../dock-render" }
+smithay-client-toolkit.workspace = true
+wayland-client.workspace = true
+wayland-backend.workspace = true
+wayland-protocols.workspace = true
+wayland-protocols-plasma.workspace = true
+calloop.workspace = true
+calloop-wayland-source.workspace = true
+tracing.workspace = true

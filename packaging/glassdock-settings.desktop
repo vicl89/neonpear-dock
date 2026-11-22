@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Ajustes de GlassDock
+Comment=Configuración de apariencia y comportamiento de GlassDock
+Exec=/usr/bin/glassdock-settings
+Icon=preferences-desktop-theme
+Terminal=false
+Categories=Settings;DesktopSettings;

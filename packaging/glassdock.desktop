@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=GlassDock
+Comment=Dock Wayland moderno con efecto cristal para KDE Plasma
+Exec=/usr/bin/glassdock
+Icon=view-app-grid
+Terminal=false
+Categories=Utility;
+X-KDE-autostart-phase=2
