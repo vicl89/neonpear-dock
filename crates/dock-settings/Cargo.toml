@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "glassdock-settings"
+name = "neonpear-dock-settings"
 path = "src/main.rs"
 
 [dependencies]

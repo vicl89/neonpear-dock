@@ -78,7 +78,7 @@ impl WindowTracker {
             }
             Err(_) => {
                 tracing::warn!(
-                    "org_kde_plasma_window_management no autorizado o no disponible; los puntos indicadores y el ocultamiento inteligente requieren lanzar glassdock mediante su archivo .desktop autorizado"
+                    "org_kde_plasma_window_management no autorizado o no disponible; los puntos indicadores y el ocultamiento inteligente requieren lanzar neonpear-dock mediante su archivo .desktop autorizado"
                 );
                 None
             }

@@ -63,7 +63,7 @@ pub struct DockConfig {
 impl Default for DockConfig {
     fn default() -> Self {
         Self {
-            namespace: "glassdock".to_string(),
+            namespace: "neonpear-dock".to_string(),
             icon_size: 48.0,
             max_icon_size: 76.0,
             magnification_enabled: true,
@@ -99,7 +99,7 @@ impl Default for DockConfig {
 
 impl DockConfig {
     pub fn config_path() -> Option<PathBuf> {
-        Some(dirs::config_dir()?.join("glassdock").join("config.toml"))
+        Some(dirs::config_dir()?.join("neonpear-dock").join("config.toml"))
     }
 
     pub fn effective_hide_mode(&self) -> HideMode {

@@ -243,7 +243,7 @@ pub fn build_menu_items(
     }
 
     items.push(ContextMenuItem {
-        label: "Configuración de GlassDock…".to_string(),
+        label: "Configuración de NeonPear Dock…".to_string(),
         enabled: true,
         destructive: false,
         separator_before: !items.is_empty(),
@@ -360,7 +360,7 @@ pub fn build_dock_quick_menu(config: &crate::DockConfig) -> Vec<ContextMenuItem>
             action: ContextMenuAction::AddSpacer,
         },
         ContextMenuItem {
-            label: "Ajustes de GlassDock...".to_string(),
+            label: "Ajustes de NeonPear Dock...".to_string(),
             enabled: true,
             destructive: false,
             separator_before: true,

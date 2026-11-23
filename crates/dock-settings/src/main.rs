@@ -358,13 +358,14 @@ impl eframe::App for SettingsApp {
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Configuración de GlassDock")
+            .with_title("Configuración de NeonPear Dock")
+            .with_app_id("neonpear-dock-settings")
             .with_inner_size([520.0, 540.0])
             .with_min_inner_size([440.0, 420.0]),
         ..Default::default()
     };
     eframe::run_native(
-        "glassdock-settings",
+        "neonpear-dock-settings",
         options,
         Box::new(|cc| {
             configure_system_font(&cc.egui_ctx);

@@ -8,7 +8,7 @@ use dock_wayland::SystemEvent;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 pub fn spawn_config_watcher(tx: Sender<SystemEvent>) -> Option<RecommendedWatcher> {
-    let config_path: PathBuf = dirs::config_dir()?.join("glassdock").join("config.toml");
+    let config_path: PathBuf = dirs::config_dir()?.join("neonpear-dock").join("config.toml");
     let watch_dir = config_path.parent()?.to_path_buf();
 
     if let Err(err) = fs::create_dir_all(&watch_dir) {

@@ -153,7 +153,7 @@ impl DockRenderer {
 
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
-                label: Some("glassdock-device"),
+                label: Some("neonpear-dock-device"),
                                                                         required_features: wgpu::Features::empty(),
                                                                         required_limits: wgpu::Limits::default(),
                                                                         memory_hints: wgpu::MemoryHints::default(),

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Ajustes de NeonPear Dock
+Comment=Configuración de apariencia y comportamiento de NeonPear Dock
+Exec=/usr/bin/neonpear-dock-settings
+Icon=NeonPearDock
+Terminal=false
+Categories=Settings;DesktopSettings;
+StartupWMClass=neonpear-dock-settings
