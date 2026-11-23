@@ -9,6 +9,22 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+pub enum DockPosition {
+    Bottom,
+    Top,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GlassTheme {
+    Auto,
+    Dark,
+    Light,
+    Custom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum BlurMode {
     Auto,
     Kwin,
@@ -56,7 +72,13 @@ pub struct DockConfig {
     pub pill_padding_y: f32,
     pub corner_radius: f32,
     pub bottom_margin: i32,
+    pub position: DockPosition,
+    pub monitor: Option<String>,
     pub blur_mode: BlurMode,
+    pub glass_theme: GlassTheme,
+    pub glass_opacity: f32,
+    pub border_intensity: f32,
+    pub custom_tint: [u8; 3],
     pub pinned_apps: Vec<String>,
 }
 
@@ -86,7 +108,13 @@ impl Default for DockConfig {
             pill_padding_y: 10.0,
             corner_radius: 20.0,
             bottom_margin: 10,
+            position: DockPosition::Bottom,
+            monitor: None,
             blur_mode: BlurMode::Auto,
+            glass_theme: GlassTheme::Auto,
+            glass_opacity: 0.50,
+            border_intensity: 1.0,
+            custom_tint: [30, 30, 46],
             pinned_apps: vec![
                 "org.kde.dolphin".into(),
                 "kitty".into(),

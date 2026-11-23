@@ -74,6 +74,7 @@ pub struct MenuLayout {
     pub box_height: f32,
     /// Posición X en coordenadas lógicas donde apunta la flecha inferior.
     pub arrow_x: f32,
+    pub point_up: bool,
     pub items: Vec<ContextMenuItem>,
     /// Rectángulo `[x, y, w, h]` de cada ítem en coordenadas lógicas del lienzo.
     pub item_rects: Vec<[f32; 4]>,

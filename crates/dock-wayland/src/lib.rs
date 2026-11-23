@@ -243,7 +243,10 @@ impl DockApp {
         let dw = pill_w.ceil() as i32;
         let dh = pill_h.ceil() as i32 + self.config.bottom_margin.max(0);
         let dx = ox + (ow - dw) / 2;
-        let dy = oy + oh - dh;
+        let dy = match self.config.position {
+            dock_core::DockPosition::Top => oy,
+            dock_core::DockPosition::Bottom => oy + oh - dh,
+        };
         Some((dx, dy, dw, dh))
     }
 
@@ -589,7 +592,12 @@ impl DockApp {
                 let x1 = (layout.pill.x + layout.pill.width + 16.0)
                     .ceil()
                     .min(cw as f32) as i32;
-                (x0, (ch - strip_h).max(0), (x1 - x0).max(48), strip_h)
+                let strip_y = if self.config.position == dock_core::DockPosition::Top {
+                    0
+                } else {
+                    (ch - strip_h).max(0)
+                };
+                (x0, strip_y, (x1 - x0).max(48), strip_h)
             } else {
                 let mut min_x = layout.pill.x;
                 let mut min_y = layout.pill.y;
@@ -604,14 +612,25 @@ impl DockApp {
                 }
 
                 if hiding {
-                    max_y = ch as f32;
-                    if !self.physics.is_hidden() {
-                        let resting_top = ch as f32
-                            - layout.pill.height
-                            - self.config.bottom_margin.max(0) as f32;
-                        min_y = min_y.min(resting_top);
+                    if self.config.position == dock_core::DockPosition::Top {
+                        min_y = 0.0;
+                        if !self.physics.is_hidden() {
+                            let resting_bottom =
+                                layout.pill.height + self.config.bottom_margin.max(0) as f32;
+                            max_y = max_y.max(resting_bottom);
+                        } else {
+                            max_y = max_y.max(4.0);
+                        }
                     } else {
-                        min_y = min_y.min((ch - 4) as f32);
+                        max_y = ch as f32;
+                        if !self.physics.is_hidden() {
+                            let resting_top = ch as f32
+                                - layout.pill.height
+                                - self.config.bottom_margin.max(0) as f32;
+                            min_y = min_y.min(resting_top);
+                        } else {
+                            min_y = min_y.min((ch - 4) as f32);
+                        }
                     }
                 }
 
@@ -630,10 +649,20 @@ impl DockApp {
         if self.physics.is_menu_open() {
             if let Some(menu) = &layout.menu {
                 let mx0 = (menu.x - 4.0).floor().clamp(0.0, cw as f32) as i32;
-                let my0 = (menu.y - 4.0).floor().clamp(0.0, ch as f32) as i32;
                 let mx1 = (menu.x + menu.width + 4.0).ceil().clamp(0.0, cw as f32) as i32;
-                let bridge_bottom = (layout.pill.y + 4.0).max(menu.anchor_y + 4.0);
-                let my1 = bridge_bottom.ceil().clamp(0.0, ch as f32) as i32;
+                let (my0, my1) = if menu.point_up {
+                    let bridge_top = (layout.pill.y + layout.pill.height - 4.0).min(menu.y - 4.0);
+                    (
+                        bridge_top.floor().clamp(0.0, ch as f32) as i32,
+                        (menu.y + menu.height + 4.0).ceil().clamp(0.0, ch as f32) as i32,
+                    )
+                } else {
+                    let bridge_bottom = (layout.pill.y + 4.0).max(menu.anchor_y + 4.0);
+                    (
+                        (menu.y - 4.0).floor().clamp(0.0, ch as f32) as i32,
+                        bridge_bottom.ceil().clamp(0.0, ch as f32) as i32,
+                    )
+                };
                 if mx1 > mx0 && my1 > my0 {
                     rects.push((mx0, my0, mx1 - mx0, my1 - my0));
                 }
@@ -718,10 +747,31 @@ impl DockApp {
         }
 
         if let Some(renderer) = &mut self.renderer {
+            let effective_dark = match self.config.glass_theme {
+                dock_core::GlassTheme::Auto => self.theme.current,
+                dock_core::GlassTheme::Dark => 1.0,
+                dock_core::GlassTheme::Light => 0.0,
+                dock_core::GlassTheme::Custom => self.theme.current,
+            };
+            let custom_tint = match self.config.glass_theme {
+                dock_core::GlassTheme::Custom => [
+                    self.config.custom_tint[0] as f32 / 255.0,
+                    self.config.custom_tint[1] as f32 / 255.0,
+                    self.config.custom_tint[2] as f32 / 255.0,
+                    1.0,
+                ],
+                _ => [0.0, 0.0, 0.0, 0.0],
+            };
+            let glass_style = dock_render::GlassStyle {
+                is_dark: effective_dark,
+                opacity: self.config.glass_opacity,
+                border_strength: self.config.border_intensity,
+                custom_tint,
+            };
             renderer.render(
                 &layout,
                 self.config.corner_radius,
-                self.theme.current,
+                glass_style,
                 self.blur.is_glass_active(),
             );
         }
@@ -818,7 +868,20 @@ impl OutputHandler for DockApp {
         &mut self.output_state
     }
     fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, output: wl_output::WlOutput) {
-        if self.active_output.is_none() {
+        let matches_preferred = self
+            .config
+            .monitor
+            .as_deref()
+            .filter(|m| !m.trim().is_empty())
+            .and_then(|preferred| {
+                self.output_state
+                    .info(&output)
+                    .and_then(|info| info.name)
+                    .map(|name| name.eq_ignore_ascii_case(preferred.trim()))
+            })
+            .unwrap_or(false);
+
+        if matches_preferred || self.active_output.is_none() {
             self.active_output = Some(output);
         }
     }
@@ -1635,16 +1698,20 @@ pub fn run_wayland_loop(
     let layer_surface = layer_shell.create_layer_surface(
         &qh,
         surface,
-        Layer::Top,
+        Layer::Overlay,
         Some(config.namespace.clone()),
         None,
     );
 
-    layer_surface.set_anchor(Anchor::BOTTOM);
+    let anchor = match config.position {
+        dock_core::DockPosition::Bottom => Anchor::BOTTOM,
+        dock_core::DockPosition::Top => Anchor::TOP,
+    };
+    layer_surface.set_anchor(anchor);
     layer_surface.set_size(canvas_w, canvas_h);
     layer_surface.set_margin(0, 0, 0, 0);
     if config.hiding_enabled() {
-        layer_surface.set_exclusive_zone(0);
+        layer_surface.set_exclusive_zone(-1);
     } else {
         layer_surface.set_exclusive_zone(resting_pill_h + config.bottom_margin);
     }
@@ -1750,8 +1817,14 @@ pub fn run_wayland_loop(
                         tracing::info!("config.toml recargado en caliente");
                         state.pinned_apps = state.catalog.resolve_pinned(&new_config.pinned_apps);
                         state.config = new_config;
+                        let anchor = match state.config.position {
+                            dock_core::DockPosition::Bottom => Anchor::BOTTOM,
+                            dock_core::DockPosition::Top => Anchor::TOP,
+                        };
+                        state.layer_surface.set_anchor(anchor);
                         state.sync_dock_state();
                         state.sync_canvas_size();
+                        state.layer_surface.commit();
                         state.request_redraw();
                         let _ = state.conn.flush();
                     }

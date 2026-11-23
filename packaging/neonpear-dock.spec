@@ -1,6 +1,6 @@
 Name:           neonpear-dock
 Version:        0.3.0
-Release:        0.3.beta3%{?dist}
+Release:        0.4.beta4%{?dist}
 Summary:        Dock Wayland moderno con efecto cristal para KDE Plasma
 License:        MIT
 URL:            https://github.com/vicl89/neonpear-dock

@@ -6,7 +6,9 @@ struct PillUniforms {
     is_dark: f32,
     scale_factor: f32,
     blur_active: f32,
-    _pad: vec2<f32>,
+    opacity: f32,
+    border_strength: f32,
+    custom_tint: vec4<f32>,
 };
 
 @group(0) @binding(0)
@@ -50,19 +52,18 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let border_dist = abs(dist + border_width * 0.5) - border_width * 0.5;
     let border_mask = (1.0 - smoothstep(-aa * 0.5, aa * 0.5, border_dist)) * fill_mask;
 
-    let light_alpha = mix(0.78, 0.34, u.blur_active);
-    let dark_alpha  = mix(0.84, 0.50, u.blur_active);
-
-    let light_fill = vec4<f32>(0.95, 0.97, 1.00, light_alpha);
-    let dark_fill  = vec4<f32>(0.10, 0.11, 0.14, dark_alpha);
-    let base_fill  = mix(light_fill, dark_fill, u.is_dark);
+    let auto_rgb = mix(vec3<f32>(0.95, 0.97, 1.00), vec3<f32>(0.10, 0.11, 0.14), u.is_dark);
+    let base_rgb = mix(auto_rgb, u.custom_tint.rgb, u.custom_tint.a);
+    let base_alpha = clamp(u.opacity, 0.0, 1.0);
+    let base_fill = vec4<f32>(base_rgb, base_alpha);
 
     // Reflejo especular relativo al borde superior real de la píldora
     let pill_top = u.pill_center.y - half_size.y;
     let top_glow = clamp(1.0 - ((in.pos.y - pill_top) / max(u.pill_size.y, 1.0)), 0.0, 1.0);
     let light_border = vec4<f32>(1.0, 1.0, 1.0, mix(0.40, 0.85, top_glow));
     let dark_border  = vec4<f32>(1.0, 1.0, 1.0, mix(0.12, 0.30, top_glow));
-    let border_col   = mix(light_border, dark_border, u.is_dark);
+    var border_col   = mix(light_border, dark_border, u.is_dark);
+    border_col.a     = clamp(border_col.a * u.border_strength, 0.0, 1.0);
 
     let rgb = mix(base_fill.rgb, border_col.rgb, border_mask * border_col.a);
     let a = clamp(base_fill.a + border_mask * border_col.a * (1.0 - base_fill.a), 0.0, 1.0) * fill_mask;

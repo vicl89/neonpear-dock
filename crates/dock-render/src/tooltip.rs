@@ -31,9 +31,9 @@ pub struct TooltipPipeline {
     uniform_buffer: wgpu::Buffer,
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    cache: HashMap<(String, bool), CachedTooltip>,
+    cache: HashMap<(String, bool, bool), CachedTooltip>,
     cached_scale_key: u32,
-    active_key: Option<(String, bool)>,
+    active_key: Option<(String, bool, bool)>,
 }
 
 impl TooltipPipeline {
@@ -171,7 +171,7 @@ impl TooltipPipeline {
         }
 
         let dark = is_dark >= 0.5;
-        let key = (slot.label.clone(), dark);
+        let key = (slot.label.clone(), dark, slot.point_up);
 
         if !self.cache.contains_key(&key) {
             if self.cache.len() >= MAX_CACHED_TOOLTIPS {
@@ -183,6 +183,7 @@ impl TooltipPipeline {
                 swash_cache,
                 &slot.label,
                 dark,
+                slot.point_up,
                 s,
             );
 
@@ -260,7 +261,12 @@ impl TooltipPipeline {
         let margin = 2.0 * s;
         let max_x = (resolution[0] - cached.width_px - margin).max(margin);
         let x = (slot.anchor_x * s - cached.width_px * 0.5).clamp(margin, max_x);
-        let y = (slot.anchor_y * s - (cached.height_px - cached.shadow_pad)).max(margin);
+        let max_y = (resolution[1] - cached.height_px - margin).max(margin);
+        let y = if slot.point_up {
+            (slot.anchor_y * s - cached.shadow_pad).clamp(margin, max_y)
+        } else {
+            (slot.anchor_y * s - (cached.height_px - cached.shadow_pad)).max(margin)
+        };
 
         let uniform = TooltipUniforms {
             rect: [x.round(), y.round(), cached.width_px, cached.height_px],
@@ -303,6 +309,7 @@ fn rasterize_tooltip(
     swash_cache: &mut SwashCache,
     label: &str,
     dark: bool,
+    point_up: bool,
     scale: f32,
 ) -> RasterizedTooltip {
     let font_size = 13.0 * scale;
@@ -341,15 +348,25 @@ fn rasterize_tooltip(
     let mut canvas = vec![[0.0f32; 4]; (width * height) as usize];
 
     let bx0 = shadow_pad;
-    let by0 = shadow_pad;
+    let by0 = if point_up { shadow_pad + arrow_h } else { shadow_pad };
     let bx1 = bx0 + box_w;
     let by1 = by0 + box_h;
     let center = [(bx0 + bx1) * 0.5, (by0 + by1) * 0.5];
     let half_size = [box_w * 0.5, box_h * 0.5];
 
-    let p0 = [center[0] - arrow_half_w, by1 - 1.0 * scale];
-    let p1 = [center[0] + arrow_half_w, by1 - 1.0 * scale];
-    let p2 = [center[0], by1 + arrow_h];
+    let (p0, p1, p2) = if point_up {
+        (
+            [center[0] - arrow_half_w, by0 + 1.0 * scale],
+            [center[0] + arrow_half_w, by0 + 1.0 * scale],
+            [center[0], by0 - arrow_h],
+        )
+    } else {
+        (
+            [center[0] - arrow_half_w, by1 - 1.0 * scale],
+            [center[0] + arrow_half_w, by1 - 1.0 * scale],
+            [center[0], by1 + arrow_h],
+        )
+    };
 
     let (fill_col, border_col, text_color) = if dark {
         (

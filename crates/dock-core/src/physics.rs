@@ -73,6 +73,7 @@ pub struct TooltipSlot {
     /// Coordenada Y donde descansa la punta inferior de la flecha del tooltip.
     pub anchor_y: f32,
     pub opacity: f32,
+    pub point_up: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -626,7 +627,11 @@ impl DockPhysics {
             self.cursor.and_then(|(cx, cy)| {
                 let inside_x = cx >= rest_start_x - config.pill_padding_x - 18.0
                     && cx <= rest_start_x + rest_w - config.pill_padding_x + 18.0;
-                let inside_y = cy >= pill_top - 14.0 && cy <= canvas_h as f32;
+                let inside_y = if config.position == crate::DockPosition::Top {
+                    cy >= 0.0 && cy <= bottom_gap + pill_h + 14.0
+                } else {
+                    cy >= pill_top - 14.0 && cy <= canvas_h as f32
+                };
                 (inside_x && inside_y).then_some(cx)
             })
         };
@@ -849,17 +854,29 @@ impl DockPhysics {
         let slide_distance = pill_height + bottom_gap + 6.0;
         let hide_offset_y = self.hide_progress * slide_distance;
 
+        let is_top = config.position == crate::DockPosition::Top;
         let pill_x = (canvas_width as f32 - self.current_pill_width) * 0.5;
-        let pill_y = canvas_height as f32 - bottom_gap - pill_height + hide_offset_y;
+        let pill_y = if is_top {
+            bottom_gap - hide_offset_y
+        } else {
+            canvas_height as f32 - bottom_gap - pill_height + hide_offset_y
+        };
 
         let n = self.items.len();
         let content_w = current_content_width(&self.items, config);
         let mut cursor_x = (canvas_width as f32 - content_w) * 0.5;
 
-        let baseline_y =
-            canvas_height as f32 - bottom_gap - config.pill_padding_y - 2.0 + hide_offset_y;
-        let dot_y = canvas_height as f32 - bottom_gap - (config.pill_padding_y * 0.45).max(4.0)
-            + hide_offset_y;
+        let baseline_y = if is_top {
+            bottom_gap + config.pill_padding_y + 2.0 - hide_offset_y
+        } else {
+            canvas_height as f32 - bottom_gap - config.pill_padding_y - 2.0 + hide_offset_y
+        };
+        let dot_y = if is_top {
+            bottom_gap + (config.pill_padding_y * 0.45).max(4.0) - hide_offset_y
+        } else {
+            canvas_height as f32 - bottom_gap - (config.pill_padding_y * 0.45).max(4.0)
+                + hide_offset_y
+        };
         let div_h = (config.icon_size * 0.72).max(20.0);
         let div_y = pill_y + (pill_height - div_h) * 0.5;
 
@@ -872,9 +889,14 @@ impl DockPhysics {
             let size = item.current_size;
             let bounce_y = item.bounce.offset_y();
 
+            let icon_y = if is_top {
+                baseline_y + bounce_y
+            } else {
+                baseline_y - size - bounce_y
+            };
             icons.push(IconSlot {
                 x: cursor_x,
-                y: baseline_y - size - bounce_y,
+                y: icon_y,
                 size,
                 pressed: self.pressed_index == Some(i),
                 opacity: item.icon_opacity,
@@ -890,7 +912,7 @@ impl DockPhysics {
             }
 
             if item.badge_opacity > 0.005 && item.badge_count > 0 {
-                let icon_y = baseline_y - size - bounce_y;
+                let icon_y = if is_top { baseline_y + bounce_y } else { baseline_y - size - bounce_y };
                 let badge_scale = (size / config.icon_size.max(1.0)).clamp(0.75, 2.0);
                 badges.push(BadgeSlot {
                     x: cursor_x + size * 0.84,
@@ -924,6 +946,7 @@ impl DockPhysics {
                 anchor_x: self.tooltip_anchor_x,
                 anchor_y: self.tooltip_anchor_y,
                 opacity: self.tooltip_opacity,
+                point_up: config.position == crate::DockPosition::Top,
             })
         } else {
             None
@@ -960,7 +983,8 @@ impl DockPhysics {
         let pill_height = config.icon_size + config.pill_padding_y * 2.0;
         let hide_offset_y = self.hide_progress * (pill_height + bottom_gap + 6.0);
 
-        let (anchor_x, icon_top_y) = match &menu.anchor {
+        let is_top = config.position == crate::DockPosition::Top;
+        let (anchor_x, icon_edge_y) = match &menu.anchor {
             MenuAnchor::Entry(key) => {
                 let idx = self.items.iter().position(|it| &it.key == key)?;
                 let content_w = current_content_width(&self.items, config);
@@ -971,14 +995,23 @@ impl DockPhysics {
                         gap_between(self.items[i].section, self.items[i + 1].section, config);
                 }
                 let item = &self.items[idx];
-                let baseline_y =
-                    canvas_height as f32 - bottom_gap - config.pill_padding_y - 2.0 + hide_offset_y;
-                let top_y = baseline_y - item.current_size - item.bounce.offset_y();
-                (cursor_x + item.current_size * 0.5, top_y)
+                let edge_y = if is_top {
+                    let baseline_y = bottom_gap + config.pill_padding_y + 2.0 - hide_offset_y;
+                    baseline_y + item.current_size + item.bounce.offset_y()
+                } else {
+                    let baseline_y =
+                        canvas_height as f32 - bottom_gap - config.pill_padding_y - 2.0 + hide_offset_y;
+                    baseline_y - item.current_size - item.bounce.offset_y()
+                };
+                (cursor_x + item.current_size * 0.5, edge_y)
             }
             MenuAnchor::PointX(px) => {
-                let pill_top_y = canvas_height as f32 - bottom_gap - pill_height + hide_offset_y;
-                (*px, pill_top_y)
+                let pill_edge_y = if is_top {
+                    bottom_gap + pill_height - hide_offset_y
+                } else {
+                    canvas_height as f32 - bottom_gap - pill_height + hide_offset_y
+                };
+                (*px, pill_edge_y)
             }
         };
 
@@ -986,9 +1019,19 @@ impl DockPhysics {
         let margin = 10.0;
         let max_x = (canvas_width as f32 - width - margin).max(margin);
         let x = (anchor_x - width * 0.5).clamp(margin, max_x);
-        let y = (icon_top_y - MENU_GAP - total_height).max(margin);
+        let max_y = (canvas_height as f32 - total_height - margin).max(margin);
+        let y = if is_top {
+            (icon_edge_y + MENU_GAP).clamp(margin, max_y)
+        } else {
+            (icon_edge_y - MENU_GAP - total_height).max(margin)
+        };
         let arrow_x = anchor_x.clamp(x + 16.0, (x + width - 16.0).max(x + 16.0));
-        let item_rects = layout_item_rects(x, y, width, &menu.items);
+        let items_y = if is_top {
+            y + crate::menu::MENU_ARROW_HEIGHT
+        } else {
+            y
+        };
+        let item_rects = layout_item_rects(x, items_y, width, &menu.items);
 
         Some(MenuLayout {
             x,
@@ -997,11 +1040,12 @@ impl DockPhysics {
             height: total_height,
             box_height,
             arrow_x,
+            point_up: is_top,
             items: menu.items.clone(),
             item_rects,
             hovered_item: menu.hovered_item,
             opacity: menu.opacity,
-            anchor_y: icon_top_y,
+            anchor_y: icon_edge_y,
         })
     }
 
@@ -1019,10 +1063,18 @@ impl DockPhysics {
             x += gap_between(self.items[i].section, self.items[i + 1].section, config);
         }
 
-        let baseline_y =
-            canvas_height as f32 - bottom_gap - config.pill_padding_y - 2.0 + hide_offset_y;
+        let is_top = config.position == crate::DockPosition::Top;
+        let baseline_y = if is_top {
+            bottom_gap + config.pill_padding_y + 2.0 - hide_offset_y
+        } else {
+            canvas_height as f32 - bottom_gap - config.pill_padding_y - 2.0 + hide_offset_y
+        };
         let anchor_x = x + item.current_size * 0.5;
-        let anchor_y = baseline_y - item.current_size - item.bounce.offset_y() - TOOLTIP_GAP;
+        let anchor_y = if is_top {
+            baseline_y + item.current_size + item.bounce.offset_y() + TOOLTIP_GAP
+        } else {
+            baseline_y - item.current_size - item.bounce.offset_y() - TOOLTIP_GAP
+        };
         Some((anchor_x, anchor_y))
     }
 

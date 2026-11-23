@@ -1,4 +1,4 @@
-use dock_core::{BlurMode, DockConfig, HideMode};
+use dock_core::{BlurMode, DockConfig, DockPosition, GlassTheme, HideMode};
 use eframe::egui;
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -12,6 +12,7 @@ struct SettingsApp {
     config: DockConfig,
     tab: Tab,
     new_app_id: String,
+    autostart: bool,
     dirty: bool,
 }
 
@@ -21,6 +22,7 @@ impl SettingsApp {
             config: DockConfig::load_or_create(),
             tab: Tab::Appearance,
             new_app_id: String::new(),
+            autostart: is_autostart_enabled(),
             dirty: false,
         }
     }
@@ -37,8 +39,66 @@ impl SettingsApp {
             }
             self.config.auto_hide = self.config.hide_mode == HideMode::AutoHide;
             self.config.save();
+            sync_autostart_file(self.autostart);
             self.dirty = false;
         }
+    }
+}
+
+fn autostart_desktop_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    if home.is_empty() {
+        return None;
+    }
+    Some(
+        std::path::PathBuf::from(home)
+            .join(".config")
+            .join("autostart")
+            .join("neonpear-dock.desktop"),
+    )
+}
+
+fn is_autostart_enabled() -> bool {
+    autostart_desktop_path()
+        .map(|path| path.exists())
+        .unwrap_or(false)
+}
+
+fn resolve_dock_binary_path() -> String {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let sibling = dir.join("neonpear-dock");
+            if sibling.exists() {
+                return sibling.to_string_lossy().into_owned();
+            }
+        }
+    }
+    for candidate in ["/usr/local/bin/neonpear-dock", "/usr/bin/neonpear-dock"] {
+        if std::path::Path::new(candidate).exists() {
+            return candidate.to_string();
+        }
+    }
+    std::env::current_exe()
+        .map(|e| e.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "neonpear-dock".to_string())
+}
+
+fn sync_autostart_file(enabled: bool) {
+    let Some(path) = autostart_desktop_path() else {
+        return;
+    };
+    if enabled {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let exec_path = resolve_dock_binary_path();
+        let entry = format!(
+            "[Desktop Entry]\nType=Application\nName=NeonPear Dock\nComment=Wayland Dock for KDE Plasma\nExec={}\nIcon=neonpear-dock\nTerminal=false\nX-KDE-autostart-after=panel\n",
+            exec_path
+        );
+        let _ = std::fs::write(&path, entry);
+    } else if path.exists() {
+        let _ = std::fs::remove_file(&path);
     }
 }
 
@@ -214,6 +274,50 @@ impl eframe::App for SettingsApp {
                         }
 
                         ui.horizontal(|ui| {
+                            ui.label("Tema del cristal:");
+                            let theme_label = match self.config.glass_theme {
+                                GlassTheme::Auto => "Automático (Plasma)",
+                                GlassTheme::Dark => "Oscuro",
+                                GlassTheme::Light => "Claro",
+                                GlassTheme::Custom => "Personalizado",
+                            };
+                            egui::ComboBox::from_id_salt("glass_theme")
+                                .selected_text(theme_label)
+                                .show_ui(ui, |ui| {
+                                    for (val, text) in [
+                                        (GlassTheme::Auto, "Automático (Plasma)"),
+                                        (GlassTheme::Dark, "Oscuro"),
+                                        (GlassTheme::Light, "Claro"),
+                                        (GlassTheme::Custom, "Personalizado"),
+                                    ] {
+                                        if ui.selectable_value(&mut self.config.glass_theme, val, text).changed() {
+                                            self.dirty = true;
+                                        }
+                                    }
+                                });
+                        });
+                        if self.config.glass_theme == GlassTheme::Custom {
+                            ui.horizontal(|ui| {
+                                ui.label("Color de tinte:");
+                                if ui.color_edit_button_srgb(&mut self.config.custom_tint).changed() {
+                                    self.dirty = true;
+                                }
+                            });
+                        }
+                        if ui
+                            .add(egui::Slider::new(&mut self.config.glass_opacity, 0.0..=1.0).text("Opacidad del cristal"))
+                            .changed()
+                        {
+                            self.dirty = true;
+                        }
+                        if ui
+                            .add(egui::Slider::new(&mut self.config.border_intensity, 0.0..=2.0).text("Intensidad del borde"))
+                            .changed()
+                        {
+                            self.dirty = true;
+                        }
+
+                        ui.horizontal(|ui| {
                             ui.label("Modo de desenfoque (blur):");
                             egui::ComboBox::from_id_salt("blur_mode")
                                 .selected_text(format!("{:?}", self.config.blur_mode))
@@ -279,6 +383,38 @@ impl eframe::App for SettingsApp {
 
                         ui.separator();
                         ui.heading("Secciones del dock");
+                        ui.horizontal(|ui| {
+                            ui.label("Posición en pantalla:");
+                            let pos_label = match self.config.position {
+                                DockPosition::Bottom => "Abajo",
+                                DockPosition::Top => "Arriba",
+                            };
+                            egui::ComboBox::from_id_salt("dock_position")
+                                .selected_text(pos_label)
+                                .show_ui(ui, |ui| {
+                                    for (val, text) in [
+                                        (DockPosition::Bottom, "Abajo"),
+                                        (DockPosition::Top, "Arriba"),
+                                    ] {
+                                        if ui.selectable_value(&mut self.config.position, val, text).changed() {
+                                            self.dirty = true;
+                                        }
+                                    }
+                                });
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Monitor (opcional, ej. eDP-1 / HDMI-A-1):");
+                            let mut mon = self.config.monitor.clone().unwrap_or_default();
+                            if ui.text_edit_singleline(&mut mon).changed() {
+                                let trimmed = mon.trim().to_string();
+                                self.config.monitor = if trimmed.is_empty() { None } else { Some(trimmed) };
+                                self.dirty = true;
+                            }
+                        });
+                        ui.separator();
+                        if ui.checkbox(&mut self.autostart, "Iniciar automáticamente al iniciar sesión").changed() {
+                            self.dirty = true;
+                        }
                         if ui.checkbox(&mut self.config.show_launchpad, "Mostrar botón Launchpad").changed() {
                             self.dirty = true;
                         }

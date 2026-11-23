@@ -20,6 +20,14 @@ use wgpu::util::DeviceExt;
 const PILL_SHADER: &str = include_str!("../../../assets/shaders/pill.wgsl");
 const ICON_SHADER: &str = include_str!("../../../assets/shaders/icon.wgsl");
 
+#[derive(Clone, Copy, Debug)]
+pub struct GlassStyle {
+    pub is_dark: f32,
+    pub opacity: f32,
+    pub border_strength: f32,
+    pub custom_tint: [f32; 4],
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct PillUniforms {
@@ -30,7 +38,9 @@ struct PillUniforms {
     is_dark: f32,
     scale_factor: f32,
     blur_active: f32,
-    _pad: [f32; 2],
+    opacity: f32,
+    border_strength: f32,
+    custom_tint: [f32; 4],
 }
 
 #[repr(C)]
@@ -207,7 +217,9 @@ impl DockRenderer {
             is_dark: 0.0,
             scale_factor,
             blur_active: 1.0,
-            _pad: [0.0, 0.0],
+            opacity: 0.50,
+            border_strength: 1.0,
+            custom_tint: [0.0, 0.0, 0.0, 0.0],
         };
 
         let pill_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -565,9 +577,10 @@ impl DockRenderer {
     pub fn render(&mut self,
         layout: &FrameLayout,
         logical_corner_radius: f32,
-        is_dark: f32,
+        style: GlassStyle,
         blur_active: bool,
     ) {
+        let is_dark = style.is_dark;
         let s = self.scale_factor;
         let res = [self.config.width as f32, self.config.height as f32];
         let pill_center = layout.pill.center();
@@ -577,10 +590,12 @@ impl DockRenderer {
             pill_center: [pill_center[0] * s, pill_center[1] * s],
             pill_size: [layout.pill.width * s, layout.pill.height * s],
             corner_radius: logical_corner_radius * s,
-            is_dark,
+            is_dark: style.is_dark,
             scale_factor: s,
             blur_active: if blur_active { 1.0 } else { 0.0 },
-            _pad: [0.0, 0.0],
+            opacity: style.opacity,
+            border_strength: style.border_strength,
+            custom_tint: style.custom_tint,
         };
         self.queue.write_buffer(
             &self.pill_uniform_buffer,
