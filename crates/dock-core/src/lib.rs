@@ -1,3 +1,6 @@
+pub mod i18n;
+pub mod i18n_settings;
+pub use i18n::Language;
 pub mod desktop;
 pub mod menu;
 pub mod physics;
@@ -87,6 +90,7 @@ pub struct DockConfig {
     pub glass_opacity: f32,
     pub border_intensity: f32,
     pub custom_tint: [u8; 3],
+    pub language: Language,
     pub pinned_apps: Vec<String>,
 }
 
@@ -123,6 +127,7 @@ impl Default for DockConfig {
             glass_opacity: 0.50,
             border_intensity: 1.0,
             custom_tint: [30, 30, 46],
+            language: Language::Auto,
             pinned_apps: vec![
                 "org.kde.dolphin".into(),
                 "kitty".into(),

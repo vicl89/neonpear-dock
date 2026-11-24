@@ -90,6 +90,16 @@ pub fn build_menu_items(
     is_running: bool,
     open_windows: &[OpenWindowItem],
 ) -> Vec<ContextMenuItem> {
+    build_menu_items_localized(entry, is_running, open_windows, crate::Language::Auto)
+}
+
+pub fn build_menu_items_localized(
+    entry: &DockEntry,
+    is_running: bool,
+    open_windows: &[OpenWindowItem],
+    language: crate::Language,
+) -> Vec<ContextMenuItem> {
+    let t = crate::i18n::menu_strings(language);
     let mut items = Vec::new();
 
     match &entry.kind {
@@ -122,9 +132,9 @@ pub fn build_menu_items(
             if can_launch {
                 items.push(ContextMenuItem {
                     label: if is_running {
-                        "Nueva ventana".to_string()
+                        t.new_window.to_string()
                     } else {
-                        "Abrir".to_string()
+                        t.open.to_string()
                     },
                     enabled: true,
                     destructive: false,
@@ -153,7 +163,7 @@ pub fn build_menu_items(
             match entry.section {
                 DockSection::Pinned => {
                     items.push(ContextMenuItem {
-                        label: "Quitar del dock".to_string(),
+                        label: t.unpin.to_string(),
                         enabled: true,
                         destructive: false,
                         separator_before: sep_before_pin,
@@ -163,7 +173,7 @@ pub fn build_menu_items(
                 DockSection::Dynamic => {
                     if can_launch {
                         items.push(ContextMenuItem {
-                            label: "Fijar en el dock".to_string(),
+                            label: t.pin.to_string(),
                             enabled: true,
                             destructive: false,
                             separator_before: sep_before_pin,
@@ -172,7 +182,7 @@ pub fn build_menu_items(
                     }
                     if !is_running {
                         items.push(ContextMenuItem {
-                            label: "Quitar de recientes".to_string(),
+                            label: t.remove_recent.to_string(),
                             enabled: true,
                             destructive: false,
                             separator_before: false,
@@ -185,14 +195,14 @@ pub fn build_menu_items(
 
             if is_running {
                 items.push(ContextMenuItem {
-                    label: "Cerrar".to_string(),
+                    label: t.close.to_string(),
                     enabled: true,
                     destructive: true,
                     separator_before: !items.is_empty(),
                     action: ContextMenuAction::CloseApp(app.clone()),
                 });
                 items.push(ContextMenuItem {
-                    label: "Forzar salida".to_string(),
+                    label: t.force_quit.to_string(),
                     enabled: true,
                     destructive: true,
                     separator_before: false,
@@ -202,7 +212,7 @@ pub fn build_menu_items(
         }
         DockEntryKind::Spacer { id } => {
             items.push(ContextMenuItem {
-                label: "Quitar espaciador".to_string(),
+                label: t.remove_spacer.to_string(),
                 enabled: true,
                 destructive: true,
                 separator_before: false,
@@ -211,14 +221,14 @@ pub fn build_menu_items(
         }
         DockEntryKind::Launchpad => {
             items.push(ContextMenuItem {
-                label: "Abrir lanzador de aplicaciones".to_string(),
+                label: t.open_launcher.to_string(),
                 enabled: true,
                 destructive: false,
                 separator_before: false,
                 action: ContextMenuAction::OpenLaunchpad,
             });
             items.push(ContextMenuItem {
-                label: "Ocultar botón Launchpad".to_string(),
+                label: t.hide_launchpad.to_string(),
                 enabled: true,
                 destructive: false,
                 separator_before: true,
@@ -227,14 +237,14 @@ pub fn build_menu_items(
         }
         DockEntryKind::Trash { full } => {
             items.push(ContextMenuItem {
-                label: "Abrir Papelera".to_string(),
+                label: t.open_trash.to_string(),
                 enabled: true,
                 destructive: false,
                 separator_before: false,
                 action: ContextMenuAction::OpenTrash,
             });
             items.push(ContextMenuItem {
-                label: "Vaciar Papelera".to_string(),
+                label: t.empty_trash.to_string(),
                 enabled: *full,
                 destructive: true,
                 separator_before: true,
@@ -244,7 +254,7 @@ pub fn build_menu_items(
     }
 
     items.push(ContextMenuItem {
-        label: "Configuración de NeonPear Dock…".to_string(),
+        label: t.dock_settings.to_string(),
         enabled: true,
         destructive: false,
         separator_before: !items.is_empty(),
@@ -296,13 +306,14 @@ pub fn layout_item_rects(x: f32, y: f32, width: f32, items: &[ContextMenuItem]) 
 
 /// Construye el menú rápido del dock al hacer clic derecho sobre un separador o espacio vacío.
 pub fn build_dock_quick_menu(config: &crate::DockConfig) -> Vec<ContextMenuItem> {
+    let t = crate::i18n::menu_strings(config.language);
     let auto_hide_on = config.hide_mode != crate::HideMode::None;
     vec![
         ContextMenuItem {
             label: if auto_hide_on {
-                "Desactivar ocultamiento automático".to_string()
+                t.disable_autohide.to_string()
             } else {
-                "Activar ocultamiento automático".to_string()
+                t.enable_autohide.to_string()
             },
             enabled: true,
             destructive: false,
@@ -311,9 +322,9 @@ pub fn build_dock_quick_menu(config: &crate::DockConfig) -> Vec<ContextMenuItem>
         },
         ContextMenuItem {
             label: if config.magnification_enabled {
-                "Desactivar ampliación".to_string()
+                t.disable_magnification.to_string()
             } else {
-                "Activar ampliación".to_string()
+                t.enable_magnification.to_string()
             },
             enabled: true,
             destructive: false,
@@ -322,9 +333,9 @@ pub fn build_dock_quick_menu(config: &crate::DockConfig) -> Vec<ContextMenuItem>
         },
         ContextMenuItem {
             label: if config.show_recent_apps {
-                "Ocultar aplicaciones recientes".to_string()
+                t.hide_recent_apps.to_string()
             } else {
-                "Mostrar aplicaciones recientes".to_string()
+                t.show_recent_apps.to_string()
             },
             enabled: true,
             destructive: false,
@@ -333,9 +344,9 @@ pub fn build_dock_quick_menu(config: &crate::DockConfig) -> Vec<ContextMenuItem>
         },
         ContextMenuItem {
             label: if config.active_apps_only {
-                "Mostrar todas las aplicaciones".to_string()
+                t.show_all_apps.to_string()
             } else {
-                "Solo aplicaciones activas".to_string()
+                t.active_apps_only.to_string()
             },
             enabled: true,
             destructive: false,
@@ -344,9 +355,9 @@ pub fn build_dock_quick_menu(config: &crate::DockConfig) -> Vec<ContextMenuItem>
         },
         ContextMenuItem {
             label: if config.show_launchpad {
-                "Ocultar botón Launchpad".to_string()
+                t.hide_launchpad.to_string()
             } else {
-                "Mostrar botón Launchpad".to_string()
+                t.show_launchpad.to_string()
             },
             enabled: true,
             destructive: false,
@@ -354,14 +365,14 @@ pub fn build_dock_quick_menu(config: &crate::DockConfig) -> Vec<ContextMenuItem>
             action: ContextMenuAction::ToggleLaunchpad,
         },
         ContextMenuItem {
-            label: "Añadir espaciador".to_string(),
+            label: t.add_spacer.to_string(),
             enabled: true,
             destructive: false,
             separator_before: true,
             action: ContextMenuAction::AddSpacer,
         },
         ContextMenuItem {
-            label: "Ajustes de NeonPear Dock...".to_string(),
+            label: t.dock_settings.to_string(),
             enabled: true,
             destructive: false,
             separator_before: true,

@@ -22,7 +22,7 @@ use dock_core::desktop::{
     empty_trash, normalize_id, open_trash, AppCatalog, DesktopApp, DockEntry, DockEntryKind,
     DockSection,
 };
-use dock_core::menu::{build_menu_items, ContextMenuAction};
+use dock_core::menu::{build_menu_items_localized, ContextMenuAction};
 use dock_core::physics::{DockPhysics, FrameLayout};
 use dock_core::{DockConfig, HideMode, ThemeTransition};
 use dock_render::DockRenderer;
@@ -1144,7 +1144,7 @@ impl PointerHandler for DockApp {
                                 }
                                 DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad => Vec::new(),
                             };
-                            let items = build_menu_items(entry, is_running, &open_windows);
+                            let items = build_menu_items_localized(entry, is_running, &open_windows, self.config.language);
                             if self.physics.open_menu(idx, items) {
                                 self.hide_deadline = None;
                                 if !self.sync_canvas_size() {

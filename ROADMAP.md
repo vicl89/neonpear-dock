@@ -17,7 +17,7 @@ Plan de evolución para **NeonPear Dock** (nativo para Wayland y KDE Plasma 6).
 - [ ] Ajustes finos de UX tras el uso diario en KDE Plasma 6.
 
 ## v0.4.0 (Internacionalización, interacción y personalización)
-- [ ] **Soporte multiidioma (i18n)** en 9 idiomas: Español (`es`), Inglés (`en`), Francés (`fr`), Italiano (`it`), Portugués (`pt`), Chino (`zh`), Japonés (`ja`), Coreano (`ko`) y Ruso (`ru`).
+- [x] **Soporte multiidioma (i18n)** en 9 idiomas: Español (`es`), Inglés (`en`), Francés (`fr`), Italiano (`it`), Portugués (`pt`), Chino (`zh`), Japonés (`ja`), Coreano (`ko`) y Ruso (`ru`).
   - Detección automática del *locale* del sistema y selector manual en `neonpear-dock-settings`.
   - Soporte de fuentes CJK y cirílicas en el renderizador de menús y tooltips.
 - [ ] Reordenamiento directo (*Drag & Drop*) de íconos y espaciadores sobre el dock.
