@@ -1,6 +1,7 @@
 # NeonPear Dock
 
 [![Release](https://img.shields.io/github/v/release/vicl89/neonpear-dock?include_prereleases&style=flat-square&color=89b4fa)](https://github.com/vicl89/neonpear-dock/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/vicl89/neonpear-dock/ci.yml?branch=master&style=flat-square&label=CI)](https://github.com/vicl89/neonpear-dock/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-a6e3a1?style=flat-square)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-Wayland%20%2B%20wgpu-fab387?style=flat-square)](https://www.rust-lang.org/)
 [![KDE Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6%20(Wayland)-cba6f7?style=flat-square)](https://kde.org/plasma-desktop/)
