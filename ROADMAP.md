@@ -8,7 +8,7 @@ Plan de evolución para **NeonPear Dock** (nativo para Wayland y KDE Plasma 6).
 - [x] Tooltips y menús contextuales en 4 direcciones con puente de región de entrada.
 - [x] Tests unitarios base en `dock-core`.
 - [x] Pestaña **Acerca de** en `neonpear-dock-settings`.
-- [ ] Empaquetado estable RPM (`Release: 1%{?dist}`) y publicación del release `v0.3.0` en GitHub.
+- [x] Empaquetado estable RPM (`Release: 1%{?dist}`) y publicación del release `v0.3.0` en GitHub.
 - [ ] Incrustar video de demostración de YouTube en `README.md`.
 
 ## v0.3.1 (Mantenimiento y CI)

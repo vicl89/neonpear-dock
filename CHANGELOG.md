@@ -2,6 +2,15 @@
 
 Historial de cambios y evolución de **NeonPear Dock** (anteriormente *Glassdock*).
 
+## [0.3.0] - 2026-11-24
+### Añadido
+- Pestaña **Acerca de** en `neonpear-dock-settings` con versión, licencia MIT, enlaces a GitHub/PayPal y botón para copiar el correo de contacto.
+- Suite inicial de tests unitarios en `dock-core` (auto-escalado, geometría en 4 posiciones y menús contextuales).
+- Hoja de ruta oficial del proyecto en `ROADMAP.md`.
+
+### Cambiado
+- Empaquetado estable RPM (`0.3.0-1`) listo para instalación en Fedora con KDE Plasma 6.
+
 ## [0.3.0-beta.5] - 2026-11-23
 ### Añadido
 - Soporte completo para posiciones **Izquierda** y **Derecha** en Wayland.

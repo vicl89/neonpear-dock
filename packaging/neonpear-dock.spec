@@ -1,6 +1,6 @@
 Name:           neonpear-dock
 Version:        0.3.0
-Release:        0.5.beta5%{?dist}
+Release:        1%{?dist}
 Summary:        Dock Wayland moderno con efecto cristal para KDE Plasma
 License:        MIT
 URL:            https://github.com/vicl89/neonpear-dock
@@ -31,9 +31,8 @@ install -Dm644 %{_sourcedir}/NeonPearDock.svg %{buildroot}%{_datadir}/icons/hico
 %{_datadir}/icons/hicolor/scalable/apps/NeonPearDock.svg
 
 %changelog
-* Mon Nov 23 2026 FVidriales <fernando.vidriales.89@gmail.com> - 0.3.0-0.5.beta5
-- Soporte completo para posiciones Izquierda y Derecha en Wayland
-- Tooltips y menús contextuales adaptados a las 4 direcciones con puente de entrada continuo
-- Auto-escalado proporcional automático cuando el dock excede el tamaño del monitor
+* Tue Nov 24 2026 FVidriales <fernando.vidriales.89@gmail.com> - 0.3.0-1
+- Lanzamiento estable v0.3.0: soporte en 4 posiciones, menús contextuales y tooltips direccionales, auto-escalado proporcional, pestaña Acerca de y tests unitarios en dock-core
+
 * Sun Nov 22 2026 FVidriales <fernando.vidriales.89@gmail.com> - 0.3.0-0.3.beta3
 - Renombrado a NeonPear Dock con ícono oficial NeonPearDock.svg y lanzador en el menú
