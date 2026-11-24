@@ -2,6 +2,14 @@
 
 Historial de cambios y evolución de **NeonPear Dock** (anteriormente *Glassdock*).
 
+## [0.4.0] - 2026-11-24
+### Added
+- Soporte multiidioma (**i18n**) en 9 idiomas: Español (`es`), Inglés (`en`), Francés (`fr`), Italiano (`it`), Portugués (`pt`), Chino (`zh`), Japonés (`ja`), Coreano (`ko`) y Ruso (`ru`).
+- Detección automática del *locale* del sistema (`LC_ALL` / `LC_MESSAGES` / `LANG`) y selector manual de idioma en `neonpear-dock-settings`.
+- Respaldo automático de fuentes CJK y cirílicas vía `fc-match` en `dock-settings` (y soporte nativo en `dock-render`).
+- Workflow de GitHub Actions (`CI`) para ejecutar `cargo test --workspace` y `cargo clippy` en cada commit, junto con badge de estado en `README.md`.
+- Tests unitarios ampliados en `dock-core` cubriendo *hit-testing* en las 4 posiciones, magnificación, animación de rebote, auto-ocultado e i18n (12 tests en total).
+
 ## [0.3.0] - 2026-11-24
 ### Añadido
 - Pestaña **Acerca de** en `neonpear-dock-settings` con versión, licencia MIT, enlaces a GitHub/PayPal y botón para copiar el correo de contacto.
