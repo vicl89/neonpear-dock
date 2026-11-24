@@ -52,6 +52,7 @@ pub enum ContextMenuAction {
     OpenLaunchpad,
     AddSpacer,
     RemoveSpacer(String),
+    QuitDock,
 }
 
 #[derive(Debug, Clone)]
@@ -261,6 +262,14 @@ pub fn build_menu_items_localized(
         action: ContextMenuAction::OpenSettings,
     });
 
+    items.push(ContextMenuItem {
+        label: t.quit_dock.to_string(),
+        enabled: true,
+        destructive: true,
+        separator_before: true,
+        action: ContextMenuAction::QuitDock,
+    });
+
     items
 }
 
@@ -377,6 +386,13 @@ pub fn build_dock_quick_menu(config: &crate::DockConfig) -> Vec<ContextMenuItem>
             destructive: false,
             separator_before: true,
             action: ContextMenuAction::OpenSettings,
+        },
+        ContextMenuItem {
+            label: t.quit_dock.to_string(),
+            enabled: true,
+            destructive: true,
+            separator_before: true,
+            action: ContextMenuAction::QuitDock,
         },
     ]
 }

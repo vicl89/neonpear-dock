@@ -61,6 +61,14 @@ async fn watch_plasma_color_scheme(tx: Sender<SystemEvent>) -> zbus::Result<()> 
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let _instance_lock = match acquire_single_instance_lock() {
+        Some(lock) => lock,
+        None => {
+            eprintln!("NeonPear Dock ya está en ejecución.");
+            std::process::exit(0);
+        }
+    };
+
     tracing_subscriber::fmt()
     .with_env_filter(
         EnvFilter::try_from_default_env()
@@ -104,4 +112,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _config_watcher = config_watch::spawn_config_watcher(config_tx);
     dock_wayland::run_wayland_loop(config, catalog, apps, trash_full, dnd_tx, theme_rx)?;
     Ok(())
+}
+
+fn acquire_single_instance_lock() -> Option<std::os::unix::net::UnixListener> {
+    use std::os::linux::net::SocketAddrExt;
+    use std::os::unix::net::{SocketAddr, UnixListener};
+
+    let scope = std::env::var("XDG_RUNTIME_DIR")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_else(|_| "default".to_string());
+    let name = format!("neonpear-dock-instance-{scope}");
+    let addr = SocketAddr::from_abstract_name(&name).ok()?;
+    UnixListener::bind_addr(&addr).ok()
 }

@@ -1,0 +1,28 @@
+[2m2026-11-24T07:18:10.202344Z[0m [32m INFO[0m [2mneonpear_dock[0m[2m:[0m Configuración cargada [3mpath[0m[2m=[0m"/home/fernando/.config/neonpear-dock/config.toml"
+[2m2026-11-24T07:18:10.202421Z[0m [32m INFO[0m [2mdock_core::desktop[0m[2m:[0m Tema de iconos detectado en Plasma [3micon_theme[0m[2m=[0mSome("MacTahoe-nord-dark")
+[2m2026-11-24T07:18:10.488447Z[0m [32m INFO[0m [2mdock_core::desktop[0m[2m:[0m Catálogo de aplicaciones .desktop cargado [3mtotal[0m[2m=[0m95
+[2m2026-11-24T07:18:10.488485Z[0m [32m INFO[0m [2mneonpear_dock[0m[2m:[0m Aplicaciones fijadas resueltas [3mcount[0m[2m=[0m14 [3mapp_names[0m[2m=[0m["Dolphin", "Discover", "Brave Origin", "ZapFast", "Telegram", "Deezer", "Discord", "", "ONLYOFFICE", "Teams for Linux", "drawio", "", "System Settings", "kitty"]
+[2m2026-11-24T07:18:10.488875Z[0m [32m INFO[0m [2mneonpear_dock::trash[0m[2m:[0m Monitor de Papelera activo [3mdir[0m[2m=[0m"/home/fernando/.local/share/Trash/files" [3mfull[0m[2m=[0mfalse
+[2m2026-11-24T07:18:10.489202Z[0m [32m INFO[0m [2mneonpear_dock::config_watch[0m[2m:[0m Hot-reload de config.toml activo [3mconfig_path[0m[2m=[0m"/home/fernando/.config/neonpear-dock/config.toml"
+[2m2026-11-24T07:18:10.490265Z[0m [32m INFO[0m [2mdock_wayland::blur[0m[2m:[0m Modo blur: ext_background_effect_manager_v1 activo
+[2m2026-11-24T07:18:10.490292Z[0m [32m INFO[0m [2mdock_wayland::windows[0m[2m:[0m Protocolo org_kde_plasma_window_management activo [3mversion[0m[2m=[0m18
+[2m2026-11-24T07:18:10.490302Z[0m [32m INFO[0m [2mdock_wayland[0m[2m:[0m Modo de ocultamiento activo [3mhide_mode[0m[2m=[0mDodgeWindows
+[2m2026-11-24T07:18:10.490379Z[0m [32m INFO[0m [2mneonpear_dock::badges[0m[2m:[0m Monitor de badges D-Bus (Unity.LauncherEntry) activo
+[2m2026-11-24T07:18:10.490710Z[0m [32m INFO[0m [2mdock_wayland[0m[2m:[0m DataDevice Wayland inicializado para Drag & Drop
+[2m2026-11-24T07:18:10.612497Z[0m [32m INFO[0m [2mdock_render[0m[2m:[0m Superficie wgpu inicializada [3mformat[0m[2m=[0mBgra8Unorm [3malpha_mode[0m[2m=[0mPreMultiplied
+[2m2026-11-24T07:18:12.113689Z[0m [32m INFO[0m [2mdock_render[0m[2m:[0m Tipografía KDE aplicada a tooltips, menús y badges [3mkde_font[0m[2m=[0mIBM Plex Sans [3mresolved_font[0m[2m=[0mIBM Plex Sans [3mfile_path[0m[2m=[0mSome("/usr/local/share/fonts/i/IBMPlexSans_VariableFont_wdth,wght.ttf") [3mmatched[0m[2m=[0mSome("Some(\"IBM Plex Sans\") (weight=Weight(500))")
+[2m2026-11-24T07:18:12.165491Z[0m [32m INFO[0m [2mdock_wayland[0m[2m:[0m Cambio de esquema de color detectado [3mis_dark[0m[2m=[0mtrue
+[2m2026-11-24T19:08:05.712104Z[0m [32m INFO[0m [2mneonpear_dock[0m[2m:[0m Configuración cargada [3mpath[0m[2m=[0m"/home/fernando/.config/neonpear-dock/config.toml"
+[2m2026-11-24T19:08:05.712234Z[0m [32m INFO[0m [2mdock_core::desktop[0m[2m:[0m Tema de iconos detectado en Plasma [3micon_theme[0m[2m=[0mSome("MacTahoe-nord-dark")
+[2m2026-11-24T19:08:05.947260Z[0m [32m INFO[0m [2mdock_core::desktop[0m[2m:[0m Catálogo de aplicaciones .desktop cargado [3mtotal[0m[2m=[0m95
+[2m2026-11-24T19:08:05.947293Z[0m [32m INFO[0m [2mneonpear_dock[0m[2m:[0m Aplicaciones fijadas resueltas [3mcount[0m[2m=[0m14 [3mapp_names[0m[2m=[0m["Dolphin", "Discover", "Brave Origin", "ZapFast", "Telegram", "Deezer", "Discord", "", "ONLYOFFICE", "Teams for Linux", "drawio", "", "System Settings", "kitty"]
+[2m2026-11-24T19:08:05.948105Z[0m [32m INFO[0m [2mneonpear_dock::trash[0m[2m:[0m Monitor de Papelera activo [3mdir[0m[2m=[0m"/home/fernando/.local/share/Trash/files" [3mfull[0m[2m=[0mfalse
+[2m2026-11-24T19:08:05.948425Z[0m [32m INFO[0m [2mneonpear_dock::config_watch[0m[2m:[0m Hot-reload de config.toml activo [3mconfig_path[0m[2m=[0m"/home/fernando/.config/neonpear-dock/config.toml"
+[2m2026-11-24T19:08:05.949673Z[0m [32m INFO[0m [2mneonpear_dock::badges[0m[2m:[0m Monitor de badges D-Bus (Unity.LauncherEntry) activo
+[2m2026-11-24T19:08:05.949969Z[0m [32m INFO[0m [2mdock_wayland::blur[0m[2m:[0m Modo blur: ext_background_effect_manager_v1 activo
+[2m2026-11-24T19:08:05.950000Z[0m [32m INFO[0m [2mdock_wayland::windows[0m[2m:[0m Protocolo org_kde_plasma_window_management activo [3mversion[0m[2m=[0m18
+[2m2026-11-24T19:08:05.960232Z[0m [32m INFO[0m [2mdock_wayland[0m[2m:[0m Modo de ocultamiento activo [3mhide_mode[0m[2m=[0mDodgeWindows
+[2m2026-11-24T19:08:05.960327Z[0m [32m INFO[0m [2mdock_wayland[0m[2m:[0m Cambio de esquema de color detectado [3mis_dark[0m[2m=[0mtrue
+[2m2026-11-24T19:08:05.960737Z[0m [32m INFO[0m [2mdock_wayland[0m[2m:[0m DataDevice Wayland inicializado para Drag & Drop
+[2m2026-11-24T19:08:06.054932Z[0m [32m INFO[0m [2mdock_render[0m[2m:[0m Superficie wgpu inicializada [3mformat[0m[2m=[0mRgba8Unorm [3malpha_mode[0m[2m=[0mPreMultiplied
+[2m2026-11-24T19:08:07.365852Z[0m [32m INFO[0m [2mdock_render[0m[2m:[0m Tipografía KDE aplicada a tooltips, menús y badges [3mkde_font[0m[2m=[0mIBM Plex Sans [3mresolved_font[0m[2m=[0mIBM Plex Sans [3mfile_path[0m[2m=[0mSome("/usr/local/share/fonts/i/IBMPlexSans_VariableFont_wdth,wght.ttf") [3mmatched[0m[2m=[0mSome("Some(\"IBM Plex Sans\") (weight=Weight(500))")

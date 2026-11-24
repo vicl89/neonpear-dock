@@ -534,6 +534,10 @@ impl DockApp {
                 self.sync_canvas_size();
                 self.request_redraw();
             }
+            ContextMenuAction::QuitDock => {
+                tracing::info!("Cerrando NeonPear Dock por solicitud del usuario");
+                std::process::exit(0);
+            }
             ContextMenuAction::OpenSettings => {
                 self.physics.close_menu();
                 self.physics.set_cursor(None);
