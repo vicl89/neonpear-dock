@@ -12,7 +12,7 @@ Plan de evolución para **NeonPear Dock** (nativo para Wayland y KDE Plasma 6).
 - [ ] Incrustar video de demostración de YouTube en `README.md`.
 
 ## v0.3.1 (Mantenimiento y CI)
-- [ ] Workflow de GitHub Actions para ejecutar `cargo test --workspace` y `cargo clippy` en cada commit.
+- [x] Workflow de GitHub Actions para ejecutar `cargo test --workspace` y `cargo clippy` en cada commit.
 - [ ] Ampliar cobertura de tests en `dock-core` (magnificación, rebote y *hit-testing* en las 4 posiciones).
 - [ ] Ajustes finos de UX tras el uso diario en KDE Plasma 6.
 
