@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use bytemuck::{Pod, Zeroable};
 use cosmic_text::{Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache, Weight};
 use dock_core::physics::TooltipSlot;
+use dock_core::DockPosition;
 use wgpu::util::DeviceExt;
 
 const TOOLTIP_SHADER: &str = include_str!("../../../assets/shaders/tooltip.wgsl");
@@ -31,9 +32,9 @@ pub struct TooltipPipeline {
     uniform_buffer: wgpu::Buffer,
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    cache: HashMap<(String, bool, bool), CachedTooltip>,
+    cache: HashMap<(String, bool, DockPosition), CachedTooltip>,
     cached_scale_key: u32,
-    active_key: Option<(String, bool, bool)>,
+    active_key: Option<(String, bool, DockPosition)>,
 }
 
 impl TooltipPipeline {
@@ -171,7 +172,7 @@ impl TooltipPipeline {
         }
 
         let dark = is_dark >= 0.5;
-        let key = (slot.label.clone(), dark, slot.point_up);
+        let key = (slot.label.clone(), dark, slot.position);
 
         if !self.cache.contains_key(&key) {
             if self.cache.len() >= MAX_CACHED_TOOLTIPS {
@@ -183,7 +184,7 @@ impl TooltipPipeline {
                 swash_cache,
                 &slot.label,
                 dark,
-                slot.point_up,
+                slot.position,
                 s,
             );
 
@@ -260,12 +261,24 @@ impl TooltipPipeline {
 
         let margin = 2.0 * s;
         let max_x = (resolution[0] - cached.width_px - margin).max(margin);
-        let x = (slot.anchor_x * s - cached.width_px * 0.5).clamp(margin, max_x);
         let max_y = (resolution[1] - cached.height_px - margin).max(margin);
-        let y = if slot.point_up {
-            (slot.anchor_y * s - cached.shadow_pad).clamp(margin, max_y)
-        } else {
-            (slot.anchor_y * s - (cached.height_px - cached.shadow_pad)).max(margin)
+        let (x, y) = match slot.position {
+            DockPosition::Top => (
+                (slot.anchor_x * s - cached.width_px * 0.5).clamp(margin, max_x),
+                (slot.anchor_y * s - cached.shadow_pad).clamp(margin, max_y),
+            ),
+            DockPosition::Bottom => (
+                (slot.anchor_x * s - cached.width_px * 0.5).clamp(margin, max_x),
+                (slot.anchor_y * s - (cached.height_px - cached.shadow_pad)).max(margin),
+            ),
+            DockPosition::Left => (
+                (slot.anchor_x * s - cached.shadow_pad).clamp(margin, max_x),
+                (slot.anchor_y * s - cached.height_px * 0.5).clamp(margin, max_y),
+            ),
+            DockPosition::Right => (
+                (slot.anchor_x * s - (cached.width_px - cached.shadow_pad)).max(margin),
+                (slot.anchor_y * s - cached.height_px * 0.5).clamp(margin, max_y),
+            ),
         };
 
         let uniform = TooltipUniforms {
@@ -309,7 +322,7 @@ fn rasterize_tooltip(
     swash_cache: &mut SwashCache,
     label: &str,
     dark: bool,
-    point_up: bool,
+    position: DockPosition,
     scale: f32,
 ) -> RasterizedTooltip {
     let font_size = 13.0 * scale;
@@ -342,30 +355,61 @@ fn rasterize_tooltip(
     let box_w = (text_w + pad_x * 2.0).ceil();
     let box_h = (text_h + pad_y * 2.0).ceil();
 
-    let width = (box_w + shadow_pad * 2.0).ceil() as u32;
-    let height = (box_h + arrow_h + shadow_pad * 2.0).ceil() as u32;
+    let (width, height, bx0, by0) = match position {
+        DockPosition::Top => (
+            (box_w + shadow_pad * 2.0).ceil() as u32,
+            (box_h + arrow_h + shadow_pad * 2.0).ceil() as u32,
+            shadow_pad,
+            shadow_pad + arrow_h,
+        ),
+        DockPosition::Bottom => (
+            (box_w + shadow_pad * 2.0).ceil() as u32,
+            (box_h + arrow_h + shadow_pad * 2.0).ceil() as u32,
+            shadow_pad,
+            shadow_pad,
+        ),
+        DockPosition::Left => (
+            (box_w + arrow_h + shadow_pad * 2.0).ceil() as u32,
+            (box_h + shadow_pad * 2.0).ceil() as u32,
+            shadow_pad + arrow_h,
+            shadow_pad,
+        ),
+        DockPosition::Right => (
+            (box_w + arrow_h + shadow_pad * 2.0).ceil() as u32,
+            (box_h + shadow_pad * 2.0).ceil() as u32,
+            shadow_pad,
+            shadow_pad,
+        ),
+    };
 
     let mut canvas = vec![[0.0f32; 4]; (width * height) as usize];
 
-    let bx0 = shadow_pad;
-    let by0 = if point_up { shadow_pad + arrow_h } else { shadow_pad };
     let bx1 = bx0 + box_w;
     let by1 = by0 + box_h;
     let center = [(bx0 + bx1) * 0.5, (by0 + by1) * 0.5];
     let half_size = [box_w * 0.5, box_h * 0.5];
 
-    let (p0, p1, p2) = if point_up {
-        (
+    let (p0, p1, p2) = match position {
+        DockPosition::Top => (
             [center[0] - arrow_half_w, by0 + 1.0 * scale],
             [center[0] + arrow_half_w, by0 + 1.0 * scale],
             [center[0], by0 - arrow_h],
-        )
-    } else {
-        (
+        ),
+        DockPosition::Bottom => (
             [center[0] - arrow_half_w, by1 - 1.0 * scale],
             [center[0] + arrow_half_w, by1 - 1.0 * scale],
             [center[0], by1 + arrow_h],
-        )
+        ),
+        DockPosition::Left => (
+            [bx0 + 1.0 * scale, center[1] - arrow_half_w],
+            [bx0 + 1.0 * scale, center[1] + arrow_half_w],
+            [bx0 - arrow_h, center[1]],
+        ),
+        DockPosition::Right => (
+            [bx1 - 1.0 * scale, center[1] - arrow_half_w],
+            [bx1 - 1.0 * scale, center[1] + arrow_half_w],
+            [bx1 + arrow_h, center[1]],
+        ),
     };
 
     let (fill_col, border_col, text_color) = if dark {

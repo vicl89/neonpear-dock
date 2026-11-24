@@ -240,12 +240,26 @@ impl DockApp {
         })?;
 
         let (pill_w, pill_h) = self.physics.resting_pill_size(&self.config);
-        let dw = pill_w.ceil() as i32;
-        let dh = pill_h.ceil() as i32 + self.config.bottom_margin.max(0);
-        let dx = ox + (ow - dw) / 2;
-        let dy = match self.config.position {
-            dock_core::DockPosition::Top => oy,
-            dock_core::DockPosition::Bottom => oy + oh - dh,
+        let margin = self.config.bottom_margin.max(0);
+        let (dx, dy, dw, dh) = if self.config.position.is_vertical() {
+            let dw = pill_w.ceil() as i32 + margin;
+            let dh = pill_h.ceil() as i32;
+            let dy = oy + (oh - dh) / 2;
+            let dx = match self.config.position {
+                dock_core::DockPosition::Left => ox,
+                dock_core::DockPosition::Right => ox + ow - dw,
+                _ => ox,
+            };
+            (dx, dy, dw, dh)
+        } else {
+            let dw = pill_w.ceil() as i32;
+            let dh = pill_h.ceil() as i32 + margin;
+            let dx = ox + (ow - dw) / 2;
+            let dy = match self.config.position {
+                dock_core::DockPosition::Top => oy,
+                _ => oy + oh - dh,
+            };
+            (dx, dy, dw, dh)
         };
         Some((dx, dy, dw, dh))
     }
@@ -291,7 +305,32 @@ impl DockApp {
         }
     }
 
+    fn update_max_axis_extent(&mut self) -> bool {
+        let extent = self
+            .active_output
+            .clone()
+            .or_else(|| self.output_state.outputs().next())
+            .and_then(|out| self.output_state.info(&out))
+            .and_then(|info| {
+                info.logical_size.or_else(|| {
+                    info.modes
+                        .iter()
+                        .find(|m| m.current)
+                        .map(|m| m.dimensions)
+                })
+            })
+            .map(|(ow, oh)| {
+                if self.config.position.is_vertical() {
+                    oh as f32
+                } else {
+                    ow as f32
+                }
+            });
+        self.physics.set_max_axis_extent(extent)
+    }
+
     fn sync_canvas_size(&mut self) -> bool {
+        self.update_max_axis_extent();
         let (target_w, target_h) = self.physics.canvas_size(&self.config);
         if target_w != self.requested_width || target_h != self.requested_height {
             self.requested_width = target_w;
@@ -587,17 +626,31 @@ impl DockApp {
 
         let base_rect =
             if hiding && self.physics.is_hidden() && layout.hide_progress > 0.95 {
-                let strip_h = 4;
-                let x0 = (layout.pill.x - 16.0).floor().max(0.0) as i32;
-                let x1 = (layout.pill.x + layout.pill.width + 16.0)
-                    .ceil()
-                    .min(cw as f32) as i32;
-                let strip_y = if self.config.position == dock_core::DockPosition::Top {
-                    0
+                if self.config.position.is_vertical() {
+                    let strip_w = 4;
+                    let y0 = (layout.pill.y - 16.0).floor().max(0.0) as i32;
+                    let y1 = (layout.pill.y + layout.pill.height + 16.0)
+                        .ceil()
+                        .min(ch as f32) as i32;
+                    let strip_x = if self.config.position == dock_core::DockPosition::Left {
+                        0
+                    } else {
+                        (cw - strip_w).max(0)
+                    };
+                    (strip_x, y0, strip_w, (y1 - y0).max(48))
                 } else {
-                    (ch - strip_h).max(0)
-                };
-                (x0, strip_y, (x1 - x0).max(48), strip_h)
+                    let strip_h = 4;
+                    let x0 = (layout.pill.x - 16.0).floor().max(0.0) as i32;
+                    let x1 = (layout.pill.x + layout.pill.width + 16.0)
+                        .ceil()
+                        .min(cw as f32) as i32;
+                    let strip_y = if self.config.position == dock_core::DockPosition::Top {
+                        0
+                    } else {
+                        (ch - strip_h).max(0)
+                    };
+                    (x0, strip_y, (x1 - x0).max(48), strip_h)
+                }
             } else {
                 let mut min_x = layout.pill.x;
                 let mut min_y = layout.pill.y;
@@ -612,24 +665,39 @@ impl DockApp {
                 }
 
                 if hiding {
-                    if self.config.position == dock_core::DockPosition::Top {
-                        min_y = 0.0;
-                        if !self.physics.is_hidden() {
-                            let resting_bottom =
-                                layout.pill.height + self.config.bottom_margin.max(0) as f32;
-                            max_y = max_y.max(resting_bottom);
-                        } else {
-                            max_y = max_y.max(4.0);
+                    let margin = self.config.bottom_margin.max(0) as f32;
+                    match self.config.position {
+                        dock_core::DockPosition::Top => {
+                            min_y = 0.0;
+                            if !self.physics.is_hidden() {
+                                max_y = max_y.max(layout.pill.height + margin);
+                            } else {
+                                max_y = max_y.max(4.0);
+                            }
                         }
-                    } else {
-                        max_y = ch as f32;
-                        if !self.physics.is_hidden() {
-                            let resting_top = ch as f32
-                                - layout.pill.height
-                                - self.config.bottom_margin.max(0) as f32;
-                            min_y = min_y.min(resting_top);
-                        } else {
-                            min_y = min_y.min((ch - 4) as f32);
+                        dock_core::DockPosition::Bottom => {
+                            max_y = ch as f32;
+                            if !self.physics.is_hidden() {
+                                min_y = min_y.min(ch as f32 - layout.pill.height - margin);
+                            } else {
+                                min_y = min_y.min((ch - 4) as f32);
+                            }
+                        }
+                        dock_core::DockPosition::Left => {
+                            min_x = 0.0;
+                            if !self.physics.is_hidden() {
+                                max_x = max_x.max(layout.pill.width + margin);
+                            } else {
+                                max_x = max_x.max(4.0);
+                            }
+                        }
+                        dock_core::DockPosition::Right => {
+                            max_x = cw as f32;
+                            if !self.physics.is_hidden() {
+                                min_x = min_x.min(cw as f32 - layout.pill.width - margin);
+                            } else {
+                                min_x = min_x.min((cw - 4) as f32);
+                            }
                         }
                     }
                 }
@@ -648,20 +716,43 @@ impl DockApp {
         // Cuando hay menú abierto, añadimos su caja y el puente continuo hasta la píldora
         if self.physics.is_menu_open() {
             if let Some(menu) = &layout.menu {
-                let mx0 = (menu.x - 4.0).floor().clamp(0.0, cw as f32) as i32;
-                let mx1 = (menu.x + menu.width + 4.0).ceil().clamp(0.0, cw as f32) as i32;
-                let (my0, my1) = if menu.point_up {
-                    let bridge_top = (layout.pill.y + layout.pill.height - 4.0).min(menu.y - 4.0);
-                    (
-                        bridge_top.floor().clamp(0.0, ch as f32) as i32,
-                        (menu.y + menu.height + 4.0).ceil().clamp(0.0, ch as f32) as i32,
-                    )
-                } else {
-                    let bridge_bottom = (layout.pill.y + 4.0).max(menu.anchor_y + 4.0);
-                    (
-                        (menu.y - 4.0).floor().clamp(0.0, ch as f32) as i32,
-                        bridge_bottom.ceil().clamp(0.0, ch as f32) as i32,
-                    )
+                let (mx0, mx1, my0, my1) = match self.config.position {
+                    dock_core::DockPosition::Left => {
+                        let bridge_left = (layout.pill.x + layout.pill.width - 4.0).min(menu.x - 4.0);
+                        (
+                            bridge_left.floor().clamp(0.0, cw as f32) as i32,
+                            (menu.x + menu.width + 4.0).ceil().clamp(0.0, cw as f32) as i32,
+                            (menu.y - 4.0).floor().clamp(0.0, ch as f32) as i32,
+                            (menu.y + menu.height + 4.0).ceil().clamp(0.0, ch as f32) as i32,
+                        )
+                    }
+                    dock_core::DockPosition::Right => {
+                        let bridge_right = (layout.pill.x + 4.0).max(menu.x + menu.width + 4.0);
+                        (
+                            (menu.x - 4.0).floor().clamp(0.0, cw as f32) as i32,
+                            bridge_right.ceil().clamp(0.0, cw as f32) as i32,
+                            (menu.y - 4.0).floor().clamp(0.0, ch as f32) as i32,
+                            (menu.y + menu.height + 4.0).ceil().clamp(0.0, ch as f32) as i32,
+                        )
+                    }
+                    dock_core::DockPosition::Top => {
+                        let bridge_top = (layout.pill.y + layout.pill.height - 4.0).min(menu.y - 4.0);
+                        (
+                            (menu.x - 4.0).floor().clamp(0.0, cw as f32) as i32,
+                            (menu.x + menu.width + 4.0).ceil().clamp(0.0, cw as f32) as i32,
+                            bridge_top.floor().clamp(0.0, ch as f32) as i32,
+                            (menu.y + menu.height + 4.0).ceil().clamp(0.0, ch as f32) as i32,
+                        )
+                    }
+                    dock_core::DockPosition::Bottom => {
+                        let bridge_bottom = (layout.pill.y + 4.0).max(menu.anchor_y + 4.0);
+                        (
+                            (menu.x - 4.0).floor().clamp(0.0, cw as f32) as i32,
+                            (menu.x + menu.width + 4.0).ceil().clamp(0.0, cw as f32) as i32,
+                            (menu.y - 4.0).floor().clamp(0.0, ch as f32) as i32,
+                            bridge_bottom.ceil().clamp(0.0, ch as f32) as i32,
+                        )
+                    }
                 };
                 if mx1 > mx0 && my1 > my0 {
                     rects.push((mx0, my0, mx1 - mx0, my1 - my0));
@@ -883,10 +974,19 @@ impl OutputHandler for DockApp {
 
         if matches_preferred || self.active_output.is_none() {
             self.active_output = Some(output);
+            if self.update_max_axis_extent() {
+                self.sync_canvas_size();
+                self.request_redraw();
+            }
         }
     }
     fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
-        if self.evaluate_hide_state(DODGE_HIDE_DELAY_MS) {
+        let extent_changed = self.update_max_axis_extent();
+        let hide_changed = self.evaluate_hide_state(DODGE_HIDE_DELAY_MS);
+        if extent_changed {
+            self.sync_canvas_size();
+        }
+        if extent_changed || hide_changed {
             self.request_redraw();
         }
     }
@@ -1054,7 +1154,12 @@ impl PointerHandler for DockApp {
                         }
                     } else {
                         let items = dock_core::menu::build_dock_quick_menu(&self.config);
-                        if self.physics.open_dock_menu(event.position.0 as f32, items) {
+                        let anchor_pos = if self.config.position.is_vertical() {
+                            event.position.1 as f32
+                        } else {
+                            event.position.0 as f32
+                        };
+                        if self.physics.open_dock_menu(anchor_pos, items) {
                             self.hide_deadline = None;
                             if !self.sync_canvas_size() {
                                 needs_redraw = true;
@@ -1706,6 +1811,8 @@ pub fn run_wayland_loop(
     let anchor = match config.position {
         dock_core::DockPosition::Bottom => Anchor::BOTTOM,
         dock_core::DockPosition::Top => Anchor::TOP,
+        dock_core::DockPosition::Left => Anchor::LEFT,
+        dock_core::DockPosition::Right => Anchor::RIGHT,
     };
     layer_surface.set_anchor(anchor);
     layer_surface.set_size(canvas_w, canvas_h);
@@ -1820,6 +1927,8 @@ pub fn run_wayland_loop(
                         let anchor = match state.config.position {
                             dock_core::DockPosition::Bottom => Anchor::BOTTOM,
                             dock_core::DockPosition::Top => Anchor::TOP,
+                            dock_core::DockPosition::Left => Anchor::LEFT,
+                            dock_core::DockPosition::Right => Anchor::RIGHT,
                         };
                         state.layer_surface.set_anchor(anchor);
                         state.sync_dock_state();

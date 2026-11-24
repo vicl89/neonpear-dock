@@ -73,7 +73,7 @@ pub struct TooltipSlot {
     /// Coordenada Y donde descansa la punta inferior de la flecha del tooltip.
     pub anchor_y: f32,
     pub opacity: f32,
-    pub point_up: bool,
+    pub position: crate::DockPosition,
 }
 
 #[derive(Debug, Clone)]
@@ -156,6 +156,7 @@ pub struct DockPhysics {
     tooltip_opacity: f32,
     tooltip_has_pos: bool,
     menu: Option<MenuState>,
+    max_axis_extent: Option<f32>,
 }
 
 impl DockPhysics {
@@ -193,12 +194,60 @@ impl DockPhysics {
             tooltip_opacity: 0.0,
             tooltip_has_pos: false,
             menu: None,
+            max_axis_extent: None,
         }
+    }
+
+    /// Establece el tamaño máximo lógico disponible en el eje principal del monitor.
+    /// Devuelve `true` si el límite cambió.
+    pub fn set_max_axis_extent(&mut self, extent: Option<f32>) -> bool {
+        let changed = match (self.max_axis_extent, extent) {
+            (Some(a), Some(b)) => (a - b).abs() > 0.5,
+            (None, None) => false,
+            _ => true,
+        };
+        self.max_axis_extent = extent;
+        changed
+    }
+
+    /// Devuelve la configuración efectiva escalada proporcionalmente si el dock excede el monitor.
+    fn effective_config<'a>(&self, config: &'a DockConfig) -> std::borrow::Cow<'a, DockConfig> {
+        let Some(extent) = self.max_axis_extent else {
+            return std::borrow::Cow::Borrowed(config);
+        };
+        let n = self.items.len();
+        if n == 0 || extent <= 1.0 {
+            return std::borrow::Cow::Borrowed(config);
+        }
+
+        let rest_len = resting_pill_width(&self.items, config);
+        let extra_per_icon = if config.magnification_enabled {
+            (config.max_icon_size - config.icon_size).max(0.0)
+        } else {
+            0.0
+        };
+        let max_pill_len = rest_len + extra_per_icon * (n.min(4) as f32);
+        let available = (extent * 0.94).max(160.0);
+
+        if max_pill_len <= available || max_pill_len <= 1.0 {
+            return std::borrow::Cow::Borrowed(config);
+        }
+
+        let scale = (available / max_pill_len).clamp(0.35, 1.0);
+        let mut scaled = config.clone();
+        scaled.icon_size = (config.icon_size * scale).max(16.0);
+        scaled.max_icon_size = (config.max_icon_size * scale).max(scaled.icon_size);
+        scaled.icon_spacing = (config.icon_spacing * scale).max(2.0);
+        scaled.pill_padding_x = (config.pill_padding_x * scale).max(6.0);
+        scaled.pill_padding_y = (config.pill_padding_y * scale).max(4.0);
+        std::borrow::Cow::Owned(scaled)
     }
 
     /// Sincroniza la lista visible de iconos preservando animaciones por clave.
     /// Devuelve `true` si cambió la composición, orden o etiquetas.
     pub fn sync_entries(&mut self, entries: &[DockEntry], config: &DockConfig) -> bool {
+        let _eff_cfg = self.effective_config(config);
+        let config = _eff_cfg.as_ref();
         let unchanged = self.items.len() == entries.len()
             && self.items.iter().zip(entries.iter()).all(|(old, new)| {
                 old.key == new.key && old.section == new.section && old.label == new.label
@@ -404,6 +453,8 @@ impl DockPhysics {
 
     /// Devuelve el icono bajo el cursor ignorando si hay un menú abierto (útil para clic derecho).
     pub fn icon_at_cursor(&self, config: &DockConfig) -> Option<usize> {
+        let _eff_cfg = self.effective_config(config);
+        let config = _eff_cfg.as_ref();
         if self.hidden || self.hide_progress > 0.35 {
             return None;
         }
@@ -443,9 +494,15 @@ impl DockPhysics {
 
     /// Devuelve `(ancho, alto)` de la píldora en reposo (sin ampliación) para calcular colisiones con ventanas.
     pub fn resting_pill_size(&self, config: &DockConfig) -> (f32, f32) {
-        let width = resting_pill_width(&self.items, config);
-        let height = config.icon_size + config.pill_padding_y * 2.0;
-        (width, height)
+        let _eff_cfg = self.effective_config(config);
+        let config = _eff_cfg.as_ref();
+        let length = resting_pill_width(&self.items, config);
+        let thickness = config.icon_size + config.pill_padding_y * 2.0;
+        if config.position.is_vertical() {
+            (thickness, length)
+        } else {
+            (length, thickness)
+        }
     }
 
     pub fn set_pressed(&mut self, pressed: bool, config: &DockConfig) -> Option<usize> {
@@ -537,6 +594,8 @@ impl DockPhysics {
     /// Calcula el tamaño lógico del lienzo Wayland reservando margen para ampliación,
     /// rebote, tooltips, menú contextual activo y el margen inferior integrado.
     pub fn canvas_size(&self, config: &DockConfig) -> (u32, u32) {
+        let _eff_cfg = self.effective_config(config);
+        let config = _eff_cfg.as_ref();
         let n = self.items.len();
         let rest_w = resting_pill_width(&self.items, config);
         let extra_per_icon = if config.magnification_enabled {
@@ -563,6 +622,34 @@ impl DockPhysics {
         };
         let bottom_gap = config.bottom_margin.max(0) as f32;
 
+        if config.position.is_vertical() {
+            let icon_inner_edge = max_icon + config.pill_padding_y + 2.0 + bottom_gap;
+            let mut canvas_w = (max_icon
+                + config.pill_padding_y * 2.0
+                + bounce_headroom
+                + bottom_gap
+                + 10.0)
+                .ceil() as u32;
+            let base_side_w = (icon_inner_edge + MENU_GAP + 260.0 + 18.0).ceil() as u32;
+            canvas_w = canvas_w.max(base_side_w);
+
+            let max_pill_len = rest_w + extra_per_icon * (n.min(4) as f32);
+            let mut canvas_h = (max_pill_len + 96.0).ceil() as u32;
+            canvas_h = canvas_h.max(360);
+
+            if let Some(menu) = &self.menu {
+                let (menu_w, _, menu_total_h) = measure_menu(&menu.items);
+                let needed_w = (icon_inner_edge + MENU_GAP + menu_w + 18.0).ceil() as u32;
+                canvas_w = canvas_w.max(needed_w);
+                canvas_h = canvas_h.max((menu_total_h + 32.0).ceil() as u32);
+            }
+
+            if let Some(ext) = self.max_axis_extent {
+                canvas_h = canvas_h.min(ext.floor().max(120.0) as u32);
+            }
+            return (canvas_w.max(72), canvas_h.max(120));
+        }
+
         let mut canvas_h = (max_icon
             + config.pill_padding_y * 2.0
             + bounce_headroom
@@ -571,10 +658,16 @@ impl DockPhysics {
             + 10.0)
             .ceil() as u32;
 
+        // Reservar espacio base para el menú contextual y evitar redimensionar
+        // la superficie Wayland / swapchain de wgpu al abrir o cerrar (elimina flickering).
+        let icon_top_from_bottom = max_icon + config.pill_padding_y + 2.0 + bottom_gap;
+        side_pad = side_pad.max(260.0);
+        let base_menu_h = (icon_top_from_bottom + MENU_GAP + 320.0 + 18.0).ceil() as u32;
+        canvas_h = canvas_h.max(base_menu_h);
+
         if let Some(menu) = &self.menu {
             let (menu_w, _, menu_total_h) = measure_menu(&menu.items);
             side_pad = side_pad.max(menu_w + 24.0);
-            let icon_top_from_bottom = max_icon + config.pill_padding_y + 2.0 + bottom_gap;
             let needed_h = (icon_top_from_bottom + MENU_GAP + menu_total_h + 18.0).ceil() as u32;
             canvas_h = canvas_h.max(needed_h);
         }
@@ -582,11 +675,17 @@ impl DockPhysics {
         let max_pill_w = rest_w + extra_per_icon * (n.min(4) as f32);
         let canvas_w = (max_pill_w + side_pad).ceil() as u32;
 
-        (canvas_w.max(120), canvas_h.max(72))
+        let mut final_w = canvas_w.max(120);
+        if let Some(ext) = self.max_axis_extent {
+            final_w = final_w.min(ext.floor().max(120.0) as u32);
+        }
+        (final_w, canvas_h.max(72))
     }
 
     /// Avanza ampliación, rebote, indicadores, auto-ocultamiento, tooltip y menú contextual.
     pub fn step(&mut self, dt_secs: f32, config: &DockConfig) -> bool {
+        let _eff_cfg = self.effective_config(config);
+        let config = _eff_cfg.as_ref();
         let n = self.items.len();
         if n == 0 {
             return false;
@@ -617,23 +716,44 @@ impl DockPhysics {
         let (canvas_w, canvas_h) = self.canvas_size(config);
         let bottom_gap = config.bottom_margin.max(0) as f32;
         let pill_h = config.icon_size + config.pill_padding_y * 2.0;
-        let pill_top = canvas_h as f32 - bottom_gap - pill_h;
         let rest_w = resting_pill_width(&self.items, config);
-        let rest_start_x = (canvas_w as f32 - rest_w) * 0.5 + config.pill_padding_x;
 
-        let active_cursor_x = if self.hidden || self.hide_progress > 0.35 || self.is_menu_open() {
-            None
+        let (rest_start_x, active_cursor_x) = if config.position.is_vertical() {
+            let rest_start_y = (canvas_h as f32 - rest_w) * 0.5 + config.pill_padding_x;
+            let pill_left = canvas_w as f32 - bottom_gap - pill_h;
+            let active = if self.hidden || self.hide_progress > 0.35 || self.is_menu_open() {
+                None
+            } else {
+                self.cursor.and_then(|(cx, cy)| {
+                    let inside_y = cy >= rest_start_y - config.pill_padding_x - 18.0
+                        && cy <= rest_start_y + rest_w - config.pill_padding_x + 18.0;
+                    let inside_x = if config.position == crate::DockPosition::Left {
+                        cx >= 0.0 && cx <= bottom_gap + pill_h + 14.0
+                    } else {
+                        cx >= pill_left - 14.0 && cx <= canvas_w as f32
+                    };
+                    (inside_x && inside_y).then_some(cy)
+                })
+            };
+            (rest_start_y, active)
         } else {
-            self.cursor.and_then(|(cx, cy)| {
-                let inside_x = cx >= rest_start_x - config.pill_padding_x - 18.0
-                    && cx <= rest_start_x + rest_w - config.pill_padding_x + 18.0;
-                let inside_y = if config.position == crate::DockPosition::Top {
-                    cy >= 0.0 && cy <= bottom_gap + pill_h + 14.0
-                } else {
-                    cy >= pill_top - 14.0 && cy <= canvas_h as f32
-                };
-                (inside_x && inside_y).then_some(cx)
-            })
+            let pill_top = canvas_h as f32 - bottom_gap - pill_h;
+            let rest_start_x = (canvas_w as f32 - rest_w) * 0.5 + config.pill_padding_x;
+            let active = if self.hidden || self.hide_progress > 0.35 || self.is_menu_open() {
+                None
+            } else {
+                self.cursor.and_then(|(cx, cy)| {
+                    let inside_x = cx >= rest_start_x - config.pill_padding_x - 18.0
+                        && cx <= rest_start_x + rest_w - config.pill_padding_x + 18.0;
+                    let inside_y = if config.position == crate::DockPosition::Top {
+                        cy >= 0.0 && cy <= bottom_gap + pill_h + 14.0
+                    } else {
+                        cy >= pill_top - 14.0 && cy <= canvas_h as f32
+                    };
+                    (inside_x && inside_y).then_some(cx)
+                })
+            };
+            (rest_start_x, active)
         };
 
         let sigma = (config.icon_size * 1.45).max(1.0);
@@ -848,11 +968,138 @@ impl DockPhysics {
     }
 
     pub fn compute_frame(&self, config: &DockConfig) -> FrameLayout {
+        let _eff_cfg = self.effective_config(config);
+        let config = _eff_cfg.as_ref();
         let (canvas_width, canvas_height) = self.canvas_size(config);
         let bottom_gap = config.bottom_margin.max(0) as f32;
         let pill_height = config.icon_size + config.pill_padding_y * 2.0;
         let slide_distance = pill_height + bottom_gap + 6.0;
         let hide_offset_y = self.hide_progress * slide_distance;
+
+        if config.position.is_vertical() {
+            let is_left = config.position == crate::DockPosition::Left;
+            let pill_w = pill_height;
+            let pill_h = self.current_pill_width;
+            let pill_x = if is_left {
+                bottom_gap - hide_offset_y
+            } else {
+                canvas_width as f32 - bottom_gap - pill_w + hide_offset_y
+            };
+            let pill_y = (canvas_height as f32 - pill_h) * 0.5;
+
+            let n = self.items.len();
+            let content_h = current_content_width(&self.items, config);
+            let mut cursor_y = (canvas_height as f32 - content_h) * 0.5;
+
+            let baseline_x = if is_left {
+                bottom_gap + config.pill_padding_y + 2.0 - hide_offset_y
+            } else {
+                canvas_width as f32 - bottom_gap - config.pill_padding_y - 2.0 + hide_offset_y
+            };
+            let dot_x = if is_left {
+                bottom_gap + (config.pill_padding_y * 0.45).max(4.0) - hide_offset_y
+            } else {
+                canvas_width as f32 - bottom_gap - (config.pill_padding_y * 0.45).max(4.0)
+                    + hide_offset_y
+            };
+            let div_w = (config.icon_size * 0.72).max(20.0);
+            let div_x = pill_x + (pill_w - div_w) * 0.5;
+
+            let mut icons = Vec::with_capacity(n);
+            let mut dots = Vec::with_capacity(n);
+            let mut badges = Vec::new();
+            let mut dividers = Vec::new();
+
+            for (i, item) in self.items.iter().enumerate() {
+                let size = item.current_size;
+                let bounce_x = item.bounce.offset_y();
+
+                let icon_x = if is_left {
+                    baseline_x + bounce_x
+                } else {
+                    baseline_x - size - bounce_x
+                };
+                icons.push(IconSlot {
+                    x: icon_x,
+                    y: cursor_y,
+                    size,
+                    pressed: self.pressed_index == Some(i),
+                    opacity: item.icon_opacity,
+                });
+
+                if item.dot_opacity > 0.005 {
+                    dots.push(DotSlot {
+                        x: dot_x,
+                        y: cursor_y + size * 0.5,
+                        radius: DOT_RADIUS,
+                        opacity: item.dot_opacity,
+                    });
+                }
+
+                if item.badge_opacity > 0.005 && item.badge_count > 0 {
+                    let badge_scale = (size / config.icon_size.max(1.0)).clamp(0.75, 2.0);
+                    badges.push(BadgeSlot {
+                        x: icon_x + size * 0.84,
+                        y: cursor_y + size * 0.14,
+                        scale: badge_scale,
+                        count: item.badge_count,
+                        opacity: item.badge_opacity,
+                    });
+                }
+
+                cursor_y += size;
+
+                if i + 1 < n {
+                    let next_sec = self.items[i + 1].section;
+                    let gap = gap_between(item.section, next_sec, config);
+                    if item.section != next_sec {
+                        dividers.push(DividerSlot {
+                            x: div_x,
+                            y: cursor_y + (gap - DIVIDER_WIDTH) * 0.5,
+                            width: div_w,
+                            height: DIVIDER_WIDTH,
+                        });
+                    }
+                    cursor_y += gap;
+                }
+            }
+
+            let tooltip = if self.tooltip_opacity > 0.005 {
+                self.tooltip_label.as_ref().map(|label| TooltipSlot {
+                    label: label.clone(),
+                    anchor_x: self.tooltip_anchor_x,
+                    anchor_y: self.tooltip_anchor_y,
+                    opacity: self.tooltip_opacity,
+                    position: config.position,
+                })
+            } else {
+                None
+            };
+
+            let menu = self
+                .menu
+                .as_ref()
+                .filter(|m| m.opacity > 0.005)
+                .and_then(|m| self.compute_menu_layout(m, config));
+
+            return FrameLayout {
+                canvas_width,
+                canvas_height,
+                pill: PillRect {
+                    x: pill_x,
+                    y: pill_y,
+                    width: pill_w,
+                    height: pill_h,
+                },
+                icons,
+                dots,
+                badges,
+                dividers,
+                tooltip,
+                menu,
+                hide_progress: self.hide_progress,
+            };
+        }
 
         let is_top = config.position == crate::DockPosition::Top;
         let pill_x = (canvas_width as f32 - self.current_pill_width) * 0.5;
@@ -946,7 +1193,7 @@ impl DockPhysics {
                 anchor_x: self.tooltip_anchor_x,
                 anchor_y: self.tooltip_anchor_y,
                 opacity: self.tooltip_opacity,
-                point_up: config.position == crate::DockPosition::Top,
+                position: config.position,
             })
         } else {
             None
@@ -978,10 +1225,77 @@ impl DockPhysics {
     }
 
     fn compute_menu_layout(&self, menu: &MenuState, config: &DockConfig) -> Option<MenuLayout> {
+        let _eff_cfg = self.effective_config(config);
+        let config = _eff_cfg.as_ref();
         let (canvas_width, canvas_height) = self.canvas_size(config);
         let bottom_gap = config.bottom_margin.max(0) as f32;
         let pill_height = config.icon_size + config.pill_padding_y * 2.0;
         let hide_offset_y = self.hide_progress * (pill_height + bottom_gap + 6.0);
+
+        if config.position.is_vertical() {
+            let is_left = config.position == crate::DockPosition::Left;
+            let (anchor_y, icon_edge_x) = match &menu.anchor {
+                MenuAnchor::Entry(key) => {
+                    let idx = self.items.iter().position(|it| &it.key == key)?;
+                    let content_h = current_content_width(&self.items, config);
+                    let mut cursor_y = (canvas_height as f32 - content_h) * 0.5;
+                    for i in 0..idx {
+                        cursor_y += self.items[i].current_size;
+                        cursor_y +=
+                            gap_between(self.items[i].section, self.items[i + 1].section, config);
+                    }
+                    let item = &self.items[idx];
+                    let edge_x = if is_left {
+                        let baseline_x = bottom_gap + config.pill_padding_y + 2.0 - hide_offset_y;
+                        baseline_x + item.current_size + item.bounce.offset_y()
+                    } else {
+                        let baseline_x = canvas_width as f32
+                            - bottom_gap
+                            - config.pill_padding_y
+                            - 2.0
+                            + hide_offset_y;
+                        baseline_x - item.current_size - item.bounce.offset_y()
+                    };
+                    (cursor_y + item.current_size * 0.5, edge_x)
+                }
+                MenuAnchor::PointX(py) => {
+                    let pill_edge_x = if is_left {
+                        bottom_gap + pill_height - hide_offset_y
+                    } else {
+                        canvas_width as f32 - bottom_gap - pill_height + hide_offset_y
+                    };
+                    (*py, pill_edge_x)
+                }
+            };
+
+            let (width, box_height, total_height) = measure_menu(&menu.items);
+            let margin = 10.0;
+            let max_x = (canvas_width as f32 - width - margin).max(margin);
+            let x = if is_left {
+                (icon_edge_x + MENU_GAP).clamp(margin, max_x)
+            } else {
+                (icon_edge_x - MENU_GAP - width).max(margin)
+            };
+            let max_y = (canvas_height as f32 - total_height - margin).max(margin);
+            let y = (anchor_y - box_height * 0.5).clamp(margin, max_y);
+            let arrow_x = anchor_y.clamp(y + 16.0, (y + box_height - 16.0).max(y + 16.0));
+            let item_rects = layout_item_rects(x, y, width, &menu.items);
+
+            return Some(MenuLayout {
+                x,
+                y,
+                width,
+                height: total_height,
+                box_height,
+                arrow_x,
+                position: config.position,
+                items: menu.items.clone(),
+                item_rects,
+                hovered_item: menu.hovered_item,
+                opacity: menu.opacity,
+                anchor_y: icon_edge_x,
+            });
+        }
 
         let is_top = config.position == crate::DockPosition::Top;
         let (anchor_x, icon_edge_y) = match &menu.anchor {
@@ -1040,7 +1354,7 @@ impl DockPhysics {
             height: total_height,
             box_height,
             arrow_x,
-            point_up: is_top,
+            position: config.position,
             items: menu.items.clone(),
             item_rects,
             hovered_item: menu.hovered_item,
@@ -1050,11 +1364,35 @@ impl DockPhysics {
     }
 
     fn icon_tooltip_anchor(&self, index: usize, config: &DockConfig) -> Option<(f32, f32)> {
+        let _eff_cfg = self.effective_config(config);
+        let config = _eff_cfg.as_ref();
         let item = self.items.get(index)?;
         let (canvas_width, canvas_height) = self.canvas_size(config);
         let bottom_gap = config.bottom_margin.max(0) as f32;
         let pill_height = config.icon_size + config.pill_padding_y * 2.0;
         let hide_offset_y = self.hide_progress * (pill_height + bottom_gap + 6.0);
+
+        if config.position.is_vertical() {
+            let content_h = current_content_width(&self.items, config);
+            let mut y = (canvas_height as f32 - content_h) * 0.5;
+            for i in 0..index {
+                y += self.items[i].current_size;
+                y += gap_between(self.items[i].section, self.items[i + 1].section, config);
+            }
+            let is_left = config.position == crate::DockPosition::Left;
+            let baseline_x = if is_left {
+                bottom_gap + config.pill_padding_y + 2.0 - hide_offset_y
+            } else {
+                canvas_width as f32 - bottom_gap - config.pill_padding_y - 2.0 + hide_offset_y
+            };
+            let anchor_y = y + item.current_size * 0.5;
+            let anchor_x = if is_left {
+                baseline_x + item.current_size + item.bounce.offset_y() + TOOLTIP_GAP
+            } else {
+                baseline_x - item.current_size - item.bounce.offset_y() - TOOLTIP_GAP
+            };
+            return Some((anchor_x, anchor_y));
+        }
 
         let content_w = current_content_width(&self.items, config);
         let mut x = (canvas_width as f32 - content_w) * 0.5;

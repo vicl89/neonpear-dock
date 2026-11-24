@@ -1,3 +1,4 @@
+use dock_core::DockPosition;
 use bytemuck::{Pod, Zeroable};
 use cosmic_text::{Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache, Weight};
 use dock_core::menu::{MenuLayout, MENU_ARROW_HEIGHT, MENU_PAD_X, MENU_SEPARATOR_HEIGHT};
@@ -91,7 +92,7 @@ struct MenuCacheKey {
     box_height_px: u32,
     arrow_rel_x_px: i32,
     dark: bool,
-    point_up: bool,
+    position: DockPosition,
     glass_active: bool,
     scale_key: u32,
 }
@@ -244,7 +245,11 @@ impl MenuPipeline {
         let dark = is_dark >= 0.5;
         let box_w_px = (layout.width * s).round().max(1.0) as u32;
         let box_h_px = (layout.box_height * s).round().max(1.0) as u32;
-        let arrow_rel_x_px = ((layout.arrow_x - layout.x) * s).round() as i32;
+        let arrow_rel_x_px = if layout.position.is_vertical() {
+            ((layout.arrow_x - layout.y) * s).round() as i32
+        } else {
+            ((layout.arrow_x - layout.x) * s).round() as i32
+        };
 
         let key = MenuCacheKey {
             items: layout
@@ -256,7 +261,7 @@ impl MenuPipeline {
             box_height_px: box_h_px,
             arrow_rel_x_px,
             dark,
-            point_up: layout.point_up,
+            position: layout.position,
             glass_active,
             scale_key: (s * 100.0).round() as u32,
         };
@@ -345,15 +350,24 @@ impl MenuPipeline {
             return false;
         };
 
-        // Ligero desplazamiento vertical al aparecer/desaparecer para sensación elástica
-        let lift = if layout.point_up { -(1.0 - layout.opacity) * 5.0 * s } else { (1.0 - layout.opacity) * 5.0 * s };
-        let x = (layout.x * s - cached.shadow_pad).round();
-        let y = (layout.y * s - cached.shadow_pad + lift).round();
+        let arrow_left_px = if layout.position == DockPosition::Left {
+            (MENU_ARROW_HEIGHT * s).round().max(1.0)
+        } else {
+            0.0
+        };
+        let (lift_x, lift_y) = match layout.position {
+            DockPosition::Top => (0.0, -(1.0 - layout.opacity) * 5.0 * s),
+            DockPosition::Bottom => (0.0, (1.0 - layout.opacity) * 5.0 * s),
+            DockPosition::Left => (-(1.0 - layout.opacity) * 5.0 * s, 0.0),
+            DockPosition::Right => ((1.0 - layout.opacity) * 5.0 * s, 0.0),
+        };
+        let x = (layout.x * s - cached.shadow_pad - arrow_left_px + lift_x).round();
+        let y = (layout.y * s - cached.shadow_pad + lift_y).round();
 
         let (hover_rect, hover_color) = if let Some(h_idx) = layout.hovered_item {
             if let (Some(item), Some(rect)) = (layout.items.get(h_idx), layout.item_rects.get(h_idx)) {
                 if item.enabled {
-                    let rx0 = cached.shadow_pad + (rect[0] - layout.x) * s;
+                    let rx0 = cached.shadow_pad + arrow_left_px + (rect[0] - layout.x) * s;
                     let ry0 = cached.shadow_pad + (rect[1] - layout.y) * s;
                     let rw = rect[2] * s;
                     let rh = rect[3] * s;
@@ -428,33 +442,81 @@ fn rasterize_menu(
     let shadow_pad = (6.0 * scale).ceil();
     let border_w = (1.0 * scale).max(1.0);
 
-    let width = (box_w + shadow_pad * 2.0).ceil() as u32;
-    let height = (box_h + arrow_h + shadow_pad * 2.0).ceil() as u32;
+    let (width, height, bx0, by0) = match layout.position {
+        DockPosition::Top => (
+            (box_w + shadow_pad * 2.0).ceil() as u32,
+            (box_h + arrow_h + shadow_pad * 2.0).ceil() as u32,
+            shadow_pad,
+            shadow_pad + arrow_h,
+        ),
+        DockPosition::Bottom => (
+            (box_w + shadow_pad * 2.0).ceil() as u32,
+            (box_h + arrow_h + shadow_pad * 2.0).ceil() as u32,
+            shadow_pad,
+            shadow_pad,
+        ),
+        DockPosition::Left => (
+            (box_w + arrow_h + shadow_pad * 2.0).ceil() as u32,
+            (box_h + shadow_pad * 2.0).ceil() as u32,
+            shadow_pad + arrow_h,
+            shadow_pad,
+        ),
+        DockPosition::Right => (
+            (box_w + arrow_h + shadow_pad * 2.0).ceil() as u32,
+            (box_h + shadow_pad * 2.0).ceil() as u32,
+            shadow_pad,
+            shadow_pad,
+        ),
+    };
 
     let mut canvas = vec![[0.0f32; 4]; (width * height) as usize];
 
-    let bx0 = shadow_pad;
-    let by0 = if layout.point_up { shadow_pad + arrow_h } else { shadow_pad };
     let bx1 = bx0 + box_w;
     let by1 = by0 + box_h;
     let center = [(bx0 + bx1) * 0.5, (by0 + by1) * 0.5];
     let half_size = [box_w * 0.5, box_h * 0.5];
 
-    let arrow_rel_x = ((layout.arrow_x - layout.x) * scale)
-        .clamp(16.0 * scale, (box_w - 16.0 * scale).max(16.0 * scale));
-    let ax = bx0 + arrow_rel_x;
-    let (p0, p1, p2) = if layout.point_up {
-        (
-            [ax - arrow_half_w, by0 + 1.0 * scale],
-            [ax + arrow_half_w, by0 + 1.0 * scale],
-            [ax, by0 - arrow_h],
-        )
-    } else {
-        (
-            [ax - arrow_half_w, by1 - 1.0 * scale],
-            [ax + arrow_half_w, by1 - 1.0 * scale],
-            [ax, by1 + arrow_h],
-        )
+    let (p0, p1, p2) = match layout.position {
+        DockPosition::Top => {
+            let arrow_rel_x = ((layout.arrow_x - layout.x) * scale)
+                .clamp(16.0 * scale, (box_w - 16.0 * scale).max(16.0 * scale));
+            let ax = bx0 + arrow_rel_x;
+            (
+                [ax - arrow_half_w, by0 + 1.0 * scale],
+                [ax + arrow_half_w, by0 + 1.0 * scale],
+                [ax, by0 - arrow_h],
+            )
+        }
+        DockPosition::Bottom => {
+            let arrow_rel_x = ((layout.arrow_x - layout.x) * scale)
+                .clamp(16.0 * scale, (box_w - 16.0 * scale).max(16.0 * scale));
+            let ax = bx0 + arrow_rel_x;
+            (
+                [ax - arrow_half_w, by1 - 1.0 * scale],
+                [ax + arrow_half_w, by1 - 1.0 * scale],
+                [ax, by1 + arrow_h],
+            )
+        }
+        DockPosition::Left => {
+            let arrow_rel_y = ((layout.arrow_x - layout.y) * scale)
+                .clamp(16.0 * scale, (box_h - 16.0 * scale).max(16.0 * scale));
+            let ay = by0 + arrow_rel_y;
+            (
+                [bx0 + 1.0 * scale, ay - arrow_half_w],
+                [bx0 + 1.0 * scale, ay + arrow_half_w],
+                [bx0 - arrow_h, ay],
+            )
+        }
+        DockPosition::Right => {
+            let arrow_rel_y = ((layout.arrow_x - layout.y) * scale)
+                .clamp(16.0 * scale, (box_h - 16.0 * scale).max(16.0 * scale));
+            let ay = by0 + arrow_rel_y;
+            (
+                [bx1 - 1.0 * scale, ay - arrow_half_w],
+                [bx1 - 1.0 * scale, ay + arrow_half_w],
+                [bx1 + arrow_h, ay],
+            )
+        }
     };
 
     let (fill_col, border_col, sep_col, _hover_col, _hover_destructive_col) = if dark {

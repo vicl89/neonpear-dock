@@ -388,6 +388,8 @@ impl eframe::App for SettingsApp {
                             let pos_label = match self.config.position {
                                 DockPosition::Bottom => "Abajo",
                                 DockPosition::Top => "Arriba",
+                                DockPosition::Left => "Izquierda",
+                                DockPosition::Right => "Derecha",
                             };
                             egui::ComboBox::from_id_salt("dock_position")
                                 .selected_text(pos_label)
@@ -395,6 +397,8 @@ impl eframe::App for SettingsApp {
                                     for (val, text) in [
                                         (DockPosition::Bottom, "Abajo"),
                                         (DockPosition::Top, "Arriba"),
+                                        (DockPosition::Left, "Izquierda"),
+                                        (DockPosition::Right, "Derecha"),
                                     ] {
                                         if ui.selectable_value(&mut self.config.position, val, text).changed() {
                                             self.dirty = true;
