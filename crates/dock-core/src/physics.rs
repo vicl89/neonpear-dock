@@ -1460,3 +1460,114 @@ fn resting_pill_width(items: &[ItemPhysics], config: &DockConfig) -> f32 {
     }
     total + config.pill_padding_x * 2.0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::DockPosition;
+    use crate::menu::{build_dock_quick_menu, layout_item_rects, measure_menu};
+
+    fn sample_entries(count: usize) -> Vec<DockEntry> {
+        (0..count)
+            .map(|i| DockEntry::spacer(format!("item-{i}")))
+            .collect()
+    }
+
+    #[test]
+    fn dock_position_orientation_flags() {
+        assert!(!DockPosition::Bottom.is_vertical());
+        assert!(!DockPosition::Top.is_vertical());
+        assert!(DockPosition::Left.is_vertical());
+        assert!(DockPosition::Right.is_vertical());
+    }
+
+    #[test]
+    fn auto_scaling_shrinks_and_restores_metrics() {
+        let config = DockConfig::default();
+        let entries = sample_entries(24);
+        let mut physics = DockPhysics::new(&entries, &config);
+
+        // Sin límite de monitor, mantiene el tamaño configurado
+        let base_eff = physics.effective_config(&config);
+        assert_eq!(base_eff.icon_size, config.icon_size);
+
+        // Con un monitor estrecho, reduce proporcionalmente sin mutar `config`
+        assert!(physics.set_max_axis_extent(Some(600.0)));
+        let scaled_eff = physics.effective_config(&config);
+        assert!(
+            scaled_eff.icon_size < config.icon_size,
+            "icon_size debería escalar hacia abajo (base={}, escalado={})",
+            config.icon_size,
+            scaled_eff.icon_size
+        );
+
+        // Al liberar el límite, recupera el tamaño original
+        assert!(physics.set_max_axis_extent(None));
+        let restored_eff = physics.effective_config(&config);
+        assert_eq!(restored_eff.icon_size, config.icon_size);
+    }
+
+    #[test]
+    fn canvas_size_respects_orientation_in_four_positions() {
+        let entries = sample_entries(8);
+        let physics = DockPhysics::new(&entries, &DockConfig::default());
+
+        for pos in [
+            DockPosition::Bottom,
+            DockPosition::Top,
+            DockPosition::Left,
+            DockPosition::Right,
+        ] {
+            let mut cfg = DockConfig::default();
+            cfg.position = pos;
+            let (w, h) = physics.canvas_size(&cfg);
+            assert!(w > 0 && h > 0, "canvas inválido para {pos:?}: {w}x{h}");
+            if pos.is_vertical() {
+                assert!(h > w, "en {pos:?} el alto ({h}) debe superar al ancho ({w})");
+            } else {
+                assert!(w > h, "en {pos:?} el ancho ({w}) debe superar al alto ({h})");
+            }
+        }
+    }
+
+    #[test]
+    fn quick_menu_measurement_and_layout_match_items() {
+        let cfg = DockConfig::default();
+        let items = build_dock_quick_menu(&cfg);
+        assert!(!items.is_empty());
+
+        let (w, h, _) = measure_menu(&items);
+        assert!(w > 0.0 && h > 0.0);
+
+        let rects = layout_item_rects(10.0, 20.0, w, &items);
+        assert_eq!(rects.len(), items.len());
+        for rect in rects {
+            assert!(rect[2] > 0.0 && rect[3] > 0.0);
+        }
+    }
+
+    #[test]
+    fn dock_menu_opens_steps_and_closes_in_all_positions() {
+        let entries = sample_entries(6);
+        let mut physics = DockPhysics::new(&entries, &DockConfig::default());
+
+        for pos in [
+            DockPosition::Bottom,
+            DockPosition::Top,
+            DockPosition::Left,
+            DockPosition::Right,
+        ] {
+            let mut cfg = DockConfig::default();
+            cfg.position = pos;
+            let items = build_dock_quick_menu(&cfg);
+
+            assert!(physics.open_dock_menu(120.0, items));
+            assert!(physics.is_menu_open());
+            physics.step(0.016, &cfg);
+            let _frame = physics.compute_frame(&cfg);
+
+            assert!(physics.close_menu());
+            assert!(!physics.is_menu_open());
+        }
+    }
+}
