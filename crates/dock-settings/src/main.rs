@@ -6,6 +6,7 @@ enum Tab {
     Appearance,
     Behavior,
     Pinned,
+    About,
 }
 
 struct SettingsApp {
@@ -14,6 +15,7 @@ struct SettingsApp {
     new_app_id: String,
     autostart: bool,
     dirty: bool,
+    copied_email: bool,
 }
 
 impl SettingsApp {
@@ -24,6 +26,7 @@ impl SettingsApp {
             new_app_id: String::new(),
             autostart: is_autostart_enabled(),
             dirty: false,
+            copied_email: false,
         }
     }
 
@@ -176,6 +179,7 @@ impl eframe::App for SettingsApp {
                 ui.selectable_value(&mut self.tab, Tab::Appearance, "Apariencia");
                 ui.selectable_value(&mut self.tab, Tab::Behavior, "Comportamiento");
                 ui.selectable_value(&mut self.tab, Tab::Pinned, "Apps fijadas");
+                ui.selectable_value(&mut self.tab, Tab::About, "Acerca de");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Restaurar por defecto").clicked() {
                         let pinned = self.config.pinned_apps.clone();
@@ -488,7 +492,79 @@ impl eframe::App for SettingsApp {
                             }
                         });
                     }
-                }
+                
+                    Tab::About => {
+                        ui.add_space(6.0);
+                        ui.heading("NeonPear Dock");
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Versión v{} — Dock nativo para Wayland y KDE Plasma 6",
+                                env!("CARGO_PKG_VERSION")
+                            ))
+                            .weak(),
+                        );
+
+                        ui.add_space(10.0);
+                        ui.separator();
+                        ui.add_space(10.0);
+
+                        egui::Grid::new("about_grid")
+                            .num_columns(2)
+                            .spacing([16.0, 8.0])
+                            .show(ui, |ui| {
+                                ui.strong("Autor:");
+                                ui.label("FVidriales");
+                                ui.end_row();
+
+                                ui.strong("Licencia:");
+                                ui.label("MIT");
+                                ui.end_row();
+
+                                ui.strong("Tecnología:");
+                                ui.label("Rust · Wayland (wlr-layer-shell) · wgpu");
+                                ui.end_row();
+
+                                ui.strong("Contacto:");
+                                ui.horizontal(|ui| {
+                                    ui.label("fernando.vidriales.89@gmail.com");
+                                    if ui.small_button("Copiar").clicked() {
+                                        ctx.copy_text("fernando.vidriales.89@gmail.com".to_owned());
+                                        self.copied_email = true;
+                                    }
+                                    if self.copied_email {
+                                        ui.label(
+                                            egui::RichText::new("¡Copiado!")
+                                                .small()
+                                                .color(egui::Color32::from_rgb(166, 227, 161)),
+                                        );
+                                    }
+                                });
+                                ui.end_row();
+                            });
+
+                        ui.add_space(14.0);
+                        ui.horizontal(|ui| {
+                            ui.hyperlink_to(
+                                "Repositorio en GitHub",
+                                "https://github.com/vicl89/neonpear-dock",
+                            );
+                            ui.label("·");
+                            ui.hyperlink_to(
+                                "Apoyar en PayPal",
+                                "https://paypal.me/fvidriales",
+                            );
+                        });
+
+                        ui.add_space(12.0);
+                        ui.label(
+                            egui::RichText::new(
+                                "Anteriormente conocido como Glassdock. Gracias por usar NeonPear Dock.",
+                            )
+                            .small()
+                            .weak(),
+                        );
+                    }
+}
             });
         });
 
