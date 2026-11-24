@@ -1570,4 +1570,124 @@ mod tests {
             assert!(!physics.is_menu_open());
         }
     }
+
+    #[test]
+    fn hit_testing_matches_icon_centers_in_all_four_positions() {
+        let entries = sample_entries(5);
+
+        for pos in [
+            DockPosition::Bottom,
+            DockPosition::Top,
+            DockPosition::Left,
+            DockPosition::Right,
+        ] {
+            let mut cfg = DockConfig::default();
+            cfg.position = pos;
+            let mut physics = DockPhysics::new(&entries, &cfg);
+            let frame = physics.compute_frame(&cfg);
+            assert_eq!(frame.icons.len(), entries.len());
+
+            let target = 2;
+            let slot = &frame.icons[target];
+            let cx = slot.x + slot.size * 0.5;
+            let cy = slot.y + slot.size * 0.5;
+
+            physics.set_cursor(Some((cx, cy)));
+            assert_eq!(
+                physics.icon_at_cursor(&cfg),
+                Some(target),
+                "hit-test falló en posición {pos:?} para el ícono {target}"
+            );
+
+            physics.set_cursor(None);
+            assert_eq!(physics.icon_at_cursor(&cfg), None);
+        }
+    }
+
+    #[test]
+    fn magnification_scales_hovered_icon_above_resting_size() {
+        let cfg = DockConfig::default();
+        let entries = sample_entries(5);
+        let mut physics = DockPhysics::new(&entries, &cfg);
+
+        let rest_frame = physics.compute_frame(&cfg);
+        let target = 2;
+        let slot = &rest_frame.icons[target];
+        let base_size = slot.size;
+
+        physics.set_cursor(Some((slot.x + slot.size * 0.5, slot.y + slot.size * 0.5)));
+        for _ in 0..40 {
+            physics.step(0.016, &cfg);
+        }
+
+        let mag_frame = physics.compute_frame(&cfg);
+        assert!(
+            mag_frame.icons[target].size > base_size,
+            "el ícono bajo el cursor debería magnificarse (base={base_size}, actual={})",
+            mag_frame.icons[target].size
+        );
+    }
+
+    #[test]
+    fn trigger_bounce_offsets_icon_and_settles() {
+        let cfg = DockConfig::default();
+        let entries = sample_entries(4);
+        let mut physics = DockPhysics::new(&entries, &cfg);
+
+        let rest_frame = physics.compute_frame(&cfg);
+        let target = 1;
+        let rest_x = rest_frame.icons[target].x;
+        let rest_y = rest_frame.icons[target].y;
+
+        physics.trigger_bounce(target, &cfg);
+
+        let mut max_delta: f32 = 0.0;
+        for _ in 0..30 {
+            physics.step(0.016, &cfg);
+            let f = physics.compute_frame(&cfg);
+            let dx = (f.icons[target].x - rest_x).abs();
+            let dy = (f.icons[target].y - rest_y).abs();
+            max_delta = max_delta.max(dx.max(dy));
+        }
+        assert!(
+            max_delta > 0.5,
+            "el rebote debería desplazar el ícono (max_delta={max_delta})"
+        );
+
+        for _ in 0..1000 {
+            if !physics.step(0.016, &cfg) {
+                break;
+            }
+        }
+        let settled = physics.compute_frame(&cfg);
+        assert!((settled.icons[target].x - rest_x).abs() < 0.5);
+        assert!((settled.icons[target].y - rest_y).abs() < 0.5);
+    }
+
+    #[test]
+    fn auto_hide_progress_transitions_and_recovers() {
+        let cfg = DockConfig::default();
+        let entries = sample_entries(4);
+        let mut physics = DockPhysics::new(&entries, &cfg);
+
+        assert!(physics.set_hidden(true));
+        for _ in 0..60 {
+            physics.step(0.016, &cfg);
+        }
+        assert!(
+            physics.hide_progress() > 0.9,
+            "hide_progress debería acercarse a 1.0 (actual={})",
+            physics.hide_progress()
+        );
+
+        assert!(physics.set_hidden(false));
+        for _ in 0..60 {
+            physics.step(0.016, &cfg);
+        }
+        assert!(
+            physics.hide_progress() < 0.1,
+            "hide_progress debería volver cerca de 0.0 (actual={})",
+            physics.hide_progress()
+        );
+    }
 }
