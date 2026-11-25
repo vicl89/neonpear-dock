@@ -1008,6 +1008,7 @@ impl DockApp {
                     self.config.icon_size,
                     self.config.position,
                     fs.progress,
+                    self.config.language.resolve(),
                 );
                 if fs.dirty {
                     renderer.set_fan_stack(
@@ -1468,6 +1469,7 @@ impl PointerHandler for DockApp {
                                             self.config.icon_size,
                                             self.config.position,
                                             0.05,
+                                            self.config.language.resolve(),
                                         );
                                         self.fan_stack = Some(FanStackState {
                                             entry_idx: idx,

@@ -268,6 +268,7 @@ pub fn compute_fan_layout(
     icon_size: f32,
     position: crate::DockPosition,
     progress: f32,
+    lang: crate::i18n::Language,
 ) -> FanLayout {
     let n = data.items.len();
     let mut slots = Vec::with_capacity(n);
@@ -387,7 +388,10 @@ pub fn compute_fan_layout(
                 (false, false) => top_theta * 0.72,
             };
 
-            let raw_label = format!("{} items in {}", data.total_count, data.folder_name);
+            let tpl = crate::i18n::menu_strings(lang).fan_items_in_folder;
+            let raw_label = tpl
+                .replace("{count}", &data.total_count.to_string())
+                .replace("{folder}", &data.folder_name);
             let label = truncate_label(&raw_label, 34);
             let lw = (label.chars().count() as f32 * char_w + 24.0).clamp(96.0, 290.0);
             let lh = label_h;
