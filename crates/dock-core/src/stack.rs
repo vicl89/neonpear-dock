@@ -48,6 +48,7 @@ pub struct FanLayout {
 }
 
 const MAX_VISIBLE_ITEMS: usize = 8;
+pub const MAX_GRID_ITEMS: usize = 19;
 
 const IMAGE_EXTS: &[&str] = &[
     "png", "jpg", "jpeg", "webp", "bmp", "gif", "qoi", "tga", "tiff", "tif",
@@ -176,7 +177,29 @@ fn resolve_entry_icon(roots: &[PathBuf], path: &Path, is_dir: bool) -> Option<St
 }
 
 /// Lee el contenido de una carpeta y prepara los datos del Stack en abanico.
-pub fn build_fan_stack_data(folder_path: &str, more_fmt: &str) -> FanStackData {
+pub fn build_fan_stack_data(folder_path: &str, _more_fmt: &str) -> FanStackData {
+    build_folder_stack_data(folder_path, MAX_VISIBLE_ITEMS)
+}
+
+/// Resuelve `Auto` según la cantidad de elementos (<= 8 -> Fan, > 8 -> Grid).
+pub fn resolve_folder_view_mode(
+    mode: crate::FolderViewMode,
+    total_count: usize,
+) -> crate::FolderViewMode {
+    match mode {
+        crate::FolderViewMode::Auto => {
+            if total_count > MAX_VISIBLE_ITEMS {
+                crate::FolderViewMode::Grid
+            } else {
+                crate::FolderViewMode::Fan
+            }
+        }
+        other => other,
+    }
+}
+
+/// Lee el contenido de una carpeta con un límite configurable de elementos visibles.
+pub fn build_folder_stack_data(folder_path: &str, max_items: usize) -> FanStackData {
     let p = Path::new(folder_path);
     let folder_name = p
         .file_name()
@@ -218,7 +241,7 @@ pub fn build_fan_stack_data(folder_path: &str, more_fmt: &str) -> FanStackData {
     let total_count = raw.len();
     let items: Vec<StackEntryItem> = raw
         .into_iter()
-        .take(MAX_VISIBLE_ITEMS)
+        .take(max_items)
         .map(|(_, mut item)| {
             if item.is_image {
                 item.icon_path = Some(item.path.clone());
@@ -229,7 +252,6 @@ pub fn build_fan_stack_data(folder_path: &str, more_fmt: &str) -> FanStackData {
         })
         .collect();
     let remaining_count = total_count.saturating_sub(items.len());
-    let _ = more_fmt;
 
     FanStackData {
         folder_path: folder_path.to_string(),
@@ -414,5 +436,244 @@ pub fn compute_fan_layout(
         more_label_rect,
         more_label_text,
         more_angle_rad,
+    }
+}
+
+
+/// Geometría de una celda individual en la vista Cuadrícula (Grid).
+#[derive(Debug, Clone, Copy)]
+pub struct GridSlotGeometry {
+    pub cell_rect: [f32; 4],  // [x, y, w, h]
+    pub icon_rect: [f32; 4],  // [x, y, w, h]
+    pub label_rect: [f32; 4], // [x, y, w, h]
+}
+
+/// Geometría completa del popover en modo Cuadrícula (Grid).
+#[derive(Debug, Clone)]
+pub struct GridLayout {
+    pub box_rect: [f32; 4],   // [x, y, w, h]
+    pub header_rect: [f32; 4],
+    pub arrow_tip: [f32; 2],
+    pub position: crate::DockPosition,
+    pub slots: Vec<GridSlotGeometry>,
+    pub open_button_slot: GridSlotGeometry,
+    pub open_button_label: String,
+    pub progress: f32,
+}
+
+/// Calcula el layout del popover en modo Cuadrícula adaptado a las 4 posiciones del dock.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_grid_layout(
+    data: &FanStackData,
+    anchor_x: f32,
+    anchor_y: f32,
+    canvas_w: f32,
+    canvas_h: f32,
+    icon_size: f32,
+    position: crate::DockPosition,
+    progress: f32,
+    language: crate::Language,
+) -> GridLayout {
+    let t = ease_out_cubic(progress);
+    let total_cells = data.items.len() + 1; // +1 para el botón "Abrir en gestor de archivos"
+    let cols = match total_cells {
+        0..=4 => total_cells.max(2),
+        5..=8 => 4,
+        _ => 5,
+    };
+    let rows = total_cells.div_ceil(cols).max(1);
+
+    let cell_w = 124.0_f32;
+    let cell_h = 110.0_f32;
+    let grid_icon = 64.0_f32;
+    let pad_x = 18.0_f32;
+    let pad_bottom = 16.0_f32;
+    let header_h = 40.0_f32;
+    let gap_x = 10.0_f32;
+    let gap_y = 10.0_f32;
+
+    let box_w = pad_x * 2.0 + cols as f32 * cell_w + (cols.saturating_sub(1)) as f32 * gap_x;
+    let box_h = header_h + pad_bottom + rows as f32 * cell_h + (rows.saturating_sub(1)) as f32 * gap_y;
+
+    let margin = 10.0_f32;
+    let dock_gap = (icon_size * 0.65).max(34.0);
+    let slide = (1.0 - t) * 14.0;
+
+    let (mut box_x, mut box_y, arrow_tip) = match position {
+        crate::DockPosition::Bottom => {
+            let x = (anchor_x - box_w * 0.5).clamp(margin, (canvas_w - box_w - margin).max(margin));
+            let y = (anchor_y - dock_gap - box_h + slide).clamp(margin, (canvas_h - box_h - margin).max(margin));
+            (x, y, [anchor_x.clamp(x + 20.0, x + box_w - 20.0), y + box_h + 7.0])
+        }
+        crate::DockPosition::Top => {
+            let x = (anchor_x - box_w * 0.5).clamp(margin, (canvas_w - box_w - margin).max(margin));
+            let y = (anchor_y + dock_gap - slide).clamp(margin, (canvas_h - box_h - margin).max(margin));
+            (x, y, [anchor_x.clamp(x + 20.0, x + box_w - 20.0), y - 7.0])
+        }
+        crate::DockPosition::Left => {
+            let x = (anchor_x + dock_gap - slide).clamp(margin, (canvas_w - box_w - margin).max(margin));
+            let y = (anchor_y - box_h * 0.5).clamp(margin, (canvas_h - box_h - margin).max(margin));
+            (x, y, [x - 7.0, anchor_y.clamp(y + 20.0, y + box_h - 20.0)])
+        }
+        crate::DockPosition::Right => {
+            let x = (anchor_x - dock_gap - box_w + slide).clamp(margin, (canvas_w - box_w - margin).max(margin));
+            let y = (anchor_y - box_h * 0.5).clamp(margin, (canvas_h - box_h - margin).max(margin));
+            (x, y, [x + box_w + 7.0, anchor_y.clamp(y + 20.0, y + box_h - 20.0)])
+        }
+    };
+
+    box_x = box_x.round();
+    box_y = box_y.round();
+
+    let make_slot = |idx: usize| -> GridSlotGeometry {
+        let col = idx % cols;
+        let row = idx / cols;
+        let cx = box_x + pad_x + col as f32 * (cell_w + gap_x);
+        let cy = box_y + header_h + row as f32 * (cell_h + gap_y);
+        let ix = cx + (cell_w - grid_icon) * 0.5;
+        let iy = cy + 6.0;
+        let ly = iy + grid_icon + 5.0;
+        GridSlotGeometry {
+            cell_rect: [cx, cy, cell_w, cell_h],
+            icon_rect: [ix, iy, grid_icon, grid_icon],
+            label_rect: [cx + 4.0, ly, cell_w - 8.0, 26.0],
+        }
+    };
+
+    let slots = (0..data.items.len()).map(make_slot).collect();
+    let open_button_slot = make_slot(data.items.len());
+    let menu_t = crate::i18n::menu_strings(language);
+
+    GridLayout {
+        box_rect: [box_x, box_y, box_w, box_h],
+        header_rect: [box_x + 16.0, box_y + 4.0, box_w - 32.0, header_h - 4.0],
+        arrow_tip,
+        position,
+        slots,
+        open_button_slot,
+        open_button_label: menu_t.open_drive.to_string(),
+        progress: t,
+    }
+}
+
+
+/// Geometría de una fila individual en la vista Lista (List).
+#[derive(Debug, Clone, Copy)]
+pub struct ListSlotGeometry {
+    pub row_rect: [f32; 4],   // [x, y, w, h]
+    pub icon_rect: [f32; 4],  // [x, y, w, h]
+    pub label_rect: [f32; 4], // [x, y, w, h]
+}
+
+/// Geometría completa del popover en modo Lista (List).
+#[derive(Debug, Clone)]
+pub struct ListLayout {
+    pub box_rect: [f32; 4],   // [x, y, w, h]
+    pub arrow_tip: [f32; 2],
+    pub position: crate::DockPosition,
+    pub slots: Vec<ListSlotGeometry>,
+    pub separator_y: f32,
+    pub open_row_rect: [f32; 4],
+    pub open_button_label: String,
+    pub progress: f32,
+}
+
+/// Calcula el layout del popover en modo Lista adaptado a las 4 posiciones del dock.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_list_layout(
+    data: &FanStackData,
+    anchor_x: f32,
+    anchor_y: f32,
+    canvas_w: f32,
+    canvas_h: f32,
+    icon_size: f32,
+    position: crate::DockPosition,
+    progress: f32,
+    language: crate::Language,
+) -> ListLayout {
+    let t = ease_out_cubic(progress);
+    let menu_t = crate::i18n::menu_strings(language);
+    let open_label = menu_t.open_drive.to_string();
+
+    let max_chars = data
+        .items
+        .iter()
+        .map(|it| it.name.chars().count() + if it.is_dir { 3 } else { 0 })
+        .chain(std::iter::once(open_label.chars().count()))
+        .max()
+        .unwrap_or(14) as f32;
+
+    let pad_x = 8.0_f32;
+    let pad_y = 8.0_f32;
+    let row_h = 34.0_f32;
+    let icon_sz = 22.0_f32;
+    let sep_h = 10.0_f32;
+
+    let box_w = (max_chars * 9.0 + 68.0).clamp(250.0, 384.0).ceil();
+    let visible_rows = data.items.len();
+    let list_h = visible_rows as f32 * row_h;
+    let box_h = (pad_y * 2.0 + list_h + sep_h + row_h).ceil();
+
+    let margin = 10.0_f32;
+    let dock_gap = (icon_size * 0.65).max(34.0);
+    let slide = (1.0 - t) * 12.0;
+
+    let (mut box_x, mut box_y, arrow_tip) = match position {
+        crate::DockPosition::Bottom => {
+            let x = (anchor_x - box_w * 0.5).clamp(margin, (canvas_w - box_w - margin).max(margin));
+            let y = (anchor_y - dock_gap - box_h + slide).clamp(margin, (canvas_h - box_h - margin).max(margin));
+            (x, y, [anchor_x.clamp(x + 20.0, x + box_w - 20.0), y + box_h + 7.0])
+        }
+        crate::DockPosition::Top => {
+            let x = (anchor_x - box_w * 0.5).clamp(margin, (canvas_w - box_w - margin).max(margin));
+            let y = (anchor_y + dock_gap - slide).clamp(margin, (canvas_h - box_h - margin).max(margin));
+            (x, y, [anchor_x.clamp(x + 20.0, x + box_w - 20.0), y - 7.0])
+        }
+        crate::DockPosition::Left => {
+            let x = (anchor_x + dock_gap - slide).clamp(margin, (canvas_w - box_w - margin).max(margin));
+            let y = (anchor_y - box_h * 0.5).clamp(margin, (canvas_h - box_h - margin).max(margin));
+            (x, y, [x - 7.0, anchor_y.clamp(y + 20.0, y + box_h - 20.0)])
+        }
+        crate::DockPosition::Right => {
+            let x = (anchor_x - dock_gap - box_w + slide).clamp(margin, (canvas_w - box_w - margin).max(margin));
+            let y = (anchor_y - box_h * 0.5).clamp(margin, (canvas_h - box_h - margin).max(margin));
+            (x, y, [x + box_w + 7.0, anchor_y.clamp(y + 20.0, y + box_h - 20.0)])
+        }
+    };
+
+    box_x = box_x.round();
+    box_y = box_y.round();
+
+    let row_w = (box_w - pad_x * 2.0).max(60.0);
+    let mut slots = Vec::with_capacity(visible_rows);
+    let mut cy = box_y + pad_y;
+
+    for _ in 0..visible_rows {
+        let rx = box_x + pad_x;
+        let ix = rx + 6.0;
+        let iy = cy + (row_h - icon_sz) * 0.5;
+        let lx = ix + icon_sz + 8.0;
+        let lw = (rx + row_w - lx - 6.0).max(40.0);
+        slots.push(ListSlotGeometry {
+            row_rect: [rx, cy, row_w, row_h],
+            icon_rect: [ix, iy, icon_sz, icon_sz],
+            label_rect: [lx, cy, lw, row_h],
+        });
+        cy += row_h;
+    }
+
+    let separator_y = cy + sep_h * 0.5;
+    cy += sep_h;
+    let open_row_rect = [box_x + pad_x, cy, row_w, row_h];
+
+    ListLayout {
+        box_rect: [box_x, box_y, box_w, box_h],
+        arrow_tip,
+        position,
+        slots,
+        separator_y,
+        open_row_rect,
+        open_button_label: open_label,
+        progress: t,
     }
 }

@@ -606,6 +606,68 @@ impl DockRenderer {
         self.fan_stack_opacity = opacity;
     }
 
+    /// Actualiza y muestra la vista Cuadrícula (Grid) de una carpeta fijada.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_grid_stack(
+        &mut self,
+        data: &dock_core::stack::FanStackData,
+        layout: &dock_core::stack::GridLayout,
+        hovered_slot: Option<usize>,
+        hover_more: bool,
+        is_dark: bool,
+        custom_tint: Option<[u8; 3]>,
+        glass_opacity: f32,
+        opacity: f32,
+    ) {
+        self.stack_pipeline.update_grid(
+            &self.device,
+            &self.queue,
+            data,
+            layout,
+            self.config.width,
+            self.config.height,
+            self.scale_factor,
+            hovered_slot,
+            hover_more,
+            is_dark,
+            custom_tint,
+            glass_opacity,
+            opacity,
+        );
+        self.fan_stack_opacity = opacity;
+    }
+
+    /// Actualiza y muestra la vista Lista (List) de una carpeta fijada.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_list_stack(
+        &mut self,
+        data: &dock_core::stack::FanStackData,
+        layout: &dock_core::stack::ListLayout,
+        hovered_slot: Option<usize>,
+        hover_more: bool,
+        is_dark: bool,
+        custom_tint: Option<[u8; 3]>,
+        glass_opacity: f32,
+        opacity: f32,
+    ) {
+        self.stack_pipeline.update_list(
+            &self.device,
+            &self.queue,
+            data,
+            layout,
+            self.config.width,
+            self.config.height,
+            self.scale_factor,
+            hovered_slot,
+            hover_more,
+            is_dark,
+            custom_tint,
+            glass_opacity,
+            opacity,
+        );
+        self.fan_stack_opacity = opacity;
+    }
+
     /// Oculta el Fan Stack actual.
     pub fn clear_fan_stack(&mut self) {
         self.fan_stack_opacity = 0.0;

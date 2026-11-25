@@ -2,7 +2,7 @@ use std::path::Path;
 
 use bytemuck::{Pod, Zeroable};
 use cosmic_text::{Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache, Weight};
-use dock_core::stack::{FanLayout, FanStackData};
+use dock_core::stack::{FanLayout, FanStackData, GridLayout, ListLayout};
 use resvg::tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
 use wgpu::util::DeviceExt;
 
@@ -104,9 +104,10 @@ pub struct FanStackPipeline {
     font_system: FontSystem,
     swash_cache: SwashCache,
     baked_slots: Vec<BakedSlot>,
+    grid_bg: Option<GpuSprite>,
     more_circle: Option<GpuSprite>,
     more_label: Option<GpuSprite>,
-    baked_key: Option<(String, u32, bool)>,
+    baked_key: Option<(String, u32, bool, u8, Option<[u8; 3]>, u8)>,
     visible: bool,
 }
 
@@ -198,6 +199,7 @@ impl FanStackPipeline {
             font_system: FontSystem::new(),
             swash_cache: SwashCache::new(),
             baked_slots: Vec::new(),
+            grid_bg: None,
             more_circle: None,
             more_label: None,
             baked_key: None,
@@ -307,7 +309,8 @@ impl FanStackPipeline {
             .first()
             .map(|s| (s.icon_size * scale).round().max(32.0) as u32)
             .unwrap_or(48);
-        let key = (data.folder_path.clone(), icon_px, is_dark);
+        self.grid_bg = None;
+        let key = (data.folder_path.clone(), icon_px, is_dark, 0u8, None, 0u8);
 
         if self.baked_key.as_ref() != Some(&key) || self.baked_slots.len() != data.items.len() {
             self.baked_slots.clear();
@@ -335,7 +338,7 @@ impl FanStackPipeline {
                     0.0,
                     (pw as f32 - 16.0 * scale).max(12.0),
                     ph as f32,
-                    12.0 * scale,
+                    15.4 * scale,
                     text_color,
                 );
                 let label_sprite = self.upload_sprite(device, queue, pw, ph, pm.data());
@@ -442,8 +445,416 @@ impl FanStackPipeline {
         self.visible = opacity > 0.001;
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_grid(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        data: &FanStackData,
+        layout: &GridLayout,
+        canvas_w: u32,
+        canvas_h: u32,
+        scale: f32,
+        hovered_slot: Option<usize>,
+        hover_more: bool,
+        is_dark: bool,
+        custom_tint: Option<[u8; 3]>,
+        glass_opacity: f32,
+        opacity: f32,
+    ) {
+        let icon_px = layout
+            .slots
+            .first()
+            .map(|s| (s.icon_rect[2] * scale).round().max(32.0) as u32)
+            .unwrap_or((54.0 * scale).round() as u32);
+        let alpha_u8 = (glass_opacity.clamp(0.35, 0.92) * 255.0).round() as u8;
+        let key = (data.folder_path.clone(), icon_px, is_dark, 1u8, custom_tint, alpha_u8);
+
+        if self.baked_key.as_ref() != Some(&key) || self.baked_slots.len() != data.items.len() {
+            self.baked_slots.clear();
+            let text_color = if is_dark {
+                Color::rgba(242, 242, 248, 245)
+            } else {
+                Color::rgba(28, 30, 38, 245)
+            };
+            let title_color = if is_dark {
+                Color::rgba(225, 228, 238, 235)
+            } else {
+                Color::rgba(45, 48, 58, 235)
+            };
+
+            // 1. Fondo del popover + título centrado
+            let [bx, by, bw, bh] = layout.box_rect;
+            let pad = 10.0_f32;
+            let bg_w = ((bw + pad * 2.0) * scale).ceil().max(32.0) as u32;
+            let bg_h = ((bh + pad * 2.0) * scale).ceil().max(32.0) as u32;
+            let mut bg_pm = Pixmap::new(bg_w, bg_h).unwrap();
+            draw_grid_panel(
+                &mut bg_pm,
+                pad * scale,
+                pad * scale,
+                bw * scale,
+                bh * scale,
+                (layout.arrow_tip[0] - bx + pad) * scale,
+                (layout.arrow_tip[1] - by + pad) * scale,
+                layout.position,
+                14.0 * scale,
+                is_dark,
+                custom_tint,
+                alpha_u8,
+            );
+            draw_text_centered(
+                &mut self.font_system,
+                &mut self.swash_cache,
+                &mut bg_pm,
+                &truncate_single_line(&data.folder_name, 36),
+                (pad + 16.0) * scale,
+                (pad + 4.0) * scale,
+                (bw - 32.0).max(20.0) * scale,
+                (layout.header_rect[3]).max(16.0) * scale,
+                17.0 * scale,
+                title_color,
+            );
+            self.grid_bg = Some(self.upload_sprite(device, queue, bg_w, bg_h, bg_pm.data()));
+
+            // 2. Íconos y etiquetas de cada celda
+            for (item, slot) in data.items.iter().zip(layout.slots.iter()) {
+                let decoded = load_icon_rgba(item.icon_path.as_deref().map(Path::new), icon_px);
+                let icon_sprite = self.upload_sprite(
+                    device,
+                    queue,
+                    decoded.width,
+                    decoded.height,
+                    &decoded.rgba_premul,
+                );
+
+                let pw = (slot.label_rect[2] * scale).ceil().max(16.0) as u32;
+                let ph = (slot.label_rect[3] * scale).ceil().max(12.0) as u32;
+                let mut pm = Pixmap::new(pw, ph).unwrap();
+                draw_text_centered(
+                    &mut self.font_system,
+                    &mut self.swash_cache,
+                    &mut pm,
+                    &truncate_single_line(&item.name, 16),
+                    2.0 * scale,
+                    0.0,
+                    (pw as f32 - 4.0 * scale).max(10.0),
+                    ph as f32,
+                    14.2 * scale,
+                    text_color,
+                );
+                let label_sprite = self.upload_sprite(device, queue, pw, ph, pm.data());
+                self.baked_slots.push(BakedSlot {
+                    icon: icon_sprite,
+                    label: label_sprite,
+                });
+            }
+
+            // 3. Botón final "Abrir en gestor de archivos"
+            let d = (layout.open_button_slot.icon_rect[2] * scale).ceil().max(24.0) as u32;
+            let mut cpm = Pixmap::new(d, d).unwrap();
+            draw_more_circle(&mut cpm, d as f32 * 0.5, d as f32 * 0.5, d as f32 * 0.46, is_dark);
+            self.more_circle = Some(self.upload_sprite(device, queue, d, d, cpm.data()));
+
+            let pw = (layout.open_button_slot.label_rect[2] * scale).ceil().max(24.0) as u32;
+            let ph = (layout.open_button_slot.label_rect[3] * scale).ceil().max(12.0) as u32;
+            let mut lpm = Pixmap::new(pw, ph).unwrap();
+            draw_text_centered(
+                &mut self.font_system,
+                &mut self.swash_cache,
+                &mut lpm,
+                &truncate_single_line(&layout.open_button_label, 16),
+                2.0 * scale,
+                0.0,
+                (pw as f32 - 4.0 * scale).max(10.0),
+                ph as f32,
+                14.2 * scale,
+                text_color,
+            );
+            self.more_label = Some(self.upload_sprite(device, queue, pw, ph, lpm.data()));
+            self.baked_key = Some(key);
+        }
+
+        let res = [canvas_w.max(1) as f32, canvas_h.max(1) as f32];
+        let hover_tint = [0.25, 0.52, 0.96, 0.55];
+        let no_tint = [0.0; 4];
+
+        if let Some(ref bg) = self.grid_bg {
+            let [bx, by, bw, bh] = layout.box_rect;
+            let pad = 10.0_f32;
+            let u = QuadUniform {
+                center: [(bx + bw * 0.5) * scale, (by + bh * 0.5) * scale],
+                size: [(bw + pad * 2.0) * scale, (bh + pad * 2.0) * scale],
+                resolution: res,
+                angle_rad: 0.0,
+                opacity,
+                tint: no_tint,
+            };
+            queue.write_buffer(&bg.uniform_buffer, 0, bytemuck::bytes_of(&u));
+        }
+
+        for (i, (baked, slot)) in self.baked_slots.iter().zip(layout.slots.iter()).enumerate() {
+            let is_hov = hovered_slot == Some(i);
+            let zoom = if is_hov { 1.08 } else { 1.0 };
+
+            let [ix, iy, iw, ih] = slot.icon_rect;
+            let icon_u = QuadUniform {
+                center: [(ix + iw * 0.5) * scale, (iy + ih * 0.5) * scale],
+                size: [iw * scale * zoom, ih * scale * zoom],
+                resolution: res,
+                angle_rad: 0.0,
+                opacity,
+                tint: no_tint,
+            };
+            queue.write_buffer(&baked.icon.uniform_buffer, 0, bytemuck::bytes_of(&icon_u));
+
+            let [lx, ly, lw, lh] = slot.label_rect;
+            let label_u = QuadUniform {
+                center: [(lx + lw * 0.5) * scale, (ly + lh * 0.5) * scale],
+                size: [lw * scale, lh * scale],
+                resolution: res,
+                angle_rad: 0.0,
+                opacity,
+                tint: if is_hov { hover_tint } else { no_tint },
+            };
+            queue.write_buffer(&baked.label.uniform_buffer, 0, bytemuck::bytes_of(&label_u));
+        }
+
+        if let Some(ref circle) = self.more_circle {
+            let zoom = if hover_more { 1.08 } else { 1.0 };
+            let [ix, iy, iw, ih] = layout.open_button_slot.icon_rect;
+            let u = QuadUniform {
+                center: [(ix + iw * 0.5) * scale, (iy + ih * 0.5) * scale],
+                size: [iw * scale * zoom, ih * scale * zoom],
+                resolution: res,
+                angle_rad: 0.0,
+                opacity,
+                tint: if hover_more { hover_tint } else { no_tint },
+            };
+            queue.write_buffer(&circle.uniform_buffer, 0, bytemuck::bytes_of(&u));
+        }
+        if let Some(ref label) = self.more_label {
+            let [lx, ly, lw, lh] = layout.open_button_slot.label_rect;
+            let u = QuadUniform {
+                center: [(lx + lw * 0.5) * scale, (ly + lh * 0.5) * scale],
+                size: [lw * scale, lh * scale],
+                resolution: res,
+                angle_rad: 0.0,
+                opacity,
+                tint: if hover_more { hover_tint } else { no_tint },
+            };
+            queue.write_buffer(&label.uniform_buffer, 0, bytemuck::bytes_of(&u));
+        }
+
+        self.visible = opacity > 0.001;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_list(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        data: &FanStackData,
+        layout: &ListLayout,
+        canvas_w: u32,
+        canvas_h: u32,
+        scale: f32,
+        hovered_slot: Option<usize>,
+        hover_more: bool,
+        is_dark: bool,
+        custom_tint: Option<[u8; 3]>,
+        glass_opacity: f32,
+        opacity: f32,
+    ) {
+        let icon_px = (22.0 * scale).round().max(18.0) as u32;
+        let alpha_u8 = (glass_opacity.clamp(0.35, 0.92) * 255.0).round() as u8;
+        let key = (data.folder_path.clone(), icon_px, is_dark, 2u8, custom_tint, alpha_u8);
+
+        if self.baked_key.as_ref() != Some(&key) || self.baked_slots.len() != data.items.len() {
+            self.baked_slots.clear();
+            let text_color = if is_dark {
+                Color::rgba(242, 242, 248, 245)
+            } else {
+                Color::rgba(28, 30, 38, 245)
+            };
+
+            // 1. Fondo del popover + línea separadora inferior
+            let [bx, by, bw, bh] = layout.box_rect;
+            let pad = 10.0_f32;
+            let bg_w = ((bw + pad * 2.0) * scale).ceil().max(32.0) as u32;
+            let bg_h = ((bh + pad * 2.0) * scale).ceil().max(32.0) as u32;
+            let mut bg_pm = Pixmap::new(bg_w, bg_h).unwrap();
+            draw_grid_panel(
+                &mut bg_pm,
+                pad * scale,
+                pad * scale,
+                bw * scale,
+                bh * scale,
+                (layout.arrow_tip[0] - bx + pad) * scale,
+                (layout.arrow_tip[1] - by + pad) * scale,
+                layout.position,
+                12.0 * scale,
+                is_dark,
+                custom_tint,
+                alpha_u8,
+            );
+
+            // Separador horizontal sobre el botón inferior
+            let sep_y = (layout.separator_y - by + pad) * scale;
+            let mut sep_pb = resvg::tiny_skia::PathBuilder::new();
+            sep_pb.move_to((pad + 10.0) * scale, sep_y);
+            sep_pb.line_to((pad + bw - 10.0) * scale, sep_y);
+            if let Some(sep_path) = sep_pb.finish() {
+                let mut sep_paint = resvg::tiny_skia::Paint::default();
+                sep_paint.anti_alias = true;
+                sep_paint.set_color(if is_dark {
+                    resvg::tiny_skia::Color::from_rgba8(255, 255, 255, 34)
+                } else {
+                    resvg::tiny_skia::Color::from_rgba8(0, 0, 0, 28)
+                });
+                let stroke = resvg::tiny_skia::Stroke {
+                    width: (1.0 * scale).max(1.0),
+                    ..Default::default()
+                };
+                bg_pm.stroke_path(
+                    &sep_path,
+                    &sep_paint,
+                    &stroke,
+                    resvg::tiny_skia::Transform::identity(),
+                    None,
+                );
+            }
+            self.grid_bg = Some(self.upload_sprite(device, queue, bg_w, bg_h, bg_pm.data()));
+
+            // 2. Filas (ícono pequeño + etiqueta)
+            for (item, slot) in data.items.iter().zip(layout.slots.iter()) {
+                let decoded = load_icon_rgba(item.icon_path.as_deref().map(Path::new), icon_px);
+                let icon_sprite = self.upload_sprite(
+                    device,
+                    queue,
+                    decoded.width,
+                    decoded.height,
+                    &decoded.rgba_premul,
+                );
+
+                let pw = (slot.label_rect[2] * scale).ceil().max(16.0) as u32;
+                let ph = (slot.label_rect[3] * scale).ceil().max(12.0) as u32;
+                let mut pm = Pixmap::new(pw, ph).unwrap();
+                let display_name = if item.is_dir {
+                    format!("{}  ▸", truncate_single_line(&item.name, 28))
+                } else {
+                    truncate_single_line(&item.name, 32)
+                };
+                draw_text_centered(
+                    &mut self.font_system,
+                    &mut self.swash_cache,
+                    &mut pm,
+                    &display_name,
+                    4.0 * scale,
+                    0.0,
+                    (pw as f32 - 8.0 * scale).max(10.0),
+                    ph as f32,
+                    12.0 * scale,
+                    text_color,
+                );
+                let label_sprite = self.upload_sprite(device, queue, pw, ph, pm.data());
+                self.baked_slots.push(BakedSlot {
+                    icon: icon_sprite,
+                    label: label_sprite,
+                });
+            }
+
+            // 3. Fila inferior "Abrir en gestor de archivos"
+            self.more_circle = None;
+            let pw = (layout.open_row_rect[2] * scale).ceil().max(24.0) as u32;
+            let ph = (layout.open_row_rect[3] * scale).ceil().max(12.0) as u32;
+            let mut lpm = Pixmap::new(pw, ph).unwrap();
+            draw_text_centered(
+                &mut self.font_system,
+                &mut self.swash_cache,
+                &mut lpm,
+                &truncate_single_line(&layout.open_button_label, 32),
+                6.0 * scale,
+                0.0,
+                (pw as f32 - 12.0 * scale).max(10.0),
+                ph as f32,
+                15.4 * scale,
+                text_color,
+            );
+            self.more_label = Some(self.upload_sprite(device, queue, pw, ph, lpm.data()));
+            self.baked_key = Some(key);
+        }
+
+        let res = [canvas_w.max(1) as f32, canvas_h.max(1) as f32];
+        let hover_tint = [0.25, 0.52, 0.96, 0.55];
+        let no_tint = [0.0; 4];
+
+        if let Some(ref bg) = self.grid_bg {
+            let [bx, by, bw, bh] = layout.box_rect;
+            let pad = 10.0_f32;
+            let u = QuadUniform {
+                center: [(bx + bw * 0.5) * scale, (by + bh * 0.5) * scale],
+                size: [(bw + pad * 2.0) * scale, (bh + pad * 2.0) * scale],
+                resolution: res,
+                angle_rad: 0.0,
+                opacity,
+                tint: no_tint,
+            };
+            queue.write_buffer(&bg.uniform_buffer, 0, bytemuck::bytes_of(&u));
+        }
+
+        for (i, (baked, slot)) in self.baked_slots.iter().zip(layout.slots.iter()).enumerate() {
+            let is_hov = hovered_slot == Some(i);
+
+            let [ix, iy, iw, ih] = slot.icon_rect;
+            let icon_u = QuadUniform {
+                center: [(ix + iw * 0.5) * scale, (iy + ih * 0.5) * scale],
+                size: [iw * scale, ih * scale],
+                resolution: res,
+                angle_rad: 0.0,
+                opacity,
+                tint: no_tint,
+            };
+            queue.write_buffer(&baked.icon.uniform_buffer, 0, bytemuck::bytes_of(&icon_u));
+
+            let [lx, ly, lw, lh] = slot.label_rect;
+            let label_u = QuadUniform {
+                center: [(lx + lw * 0.5) * scale, (ly + lh * 0.5) * scale],
+                size: [lw * scale, lh * scale],
+                resolution: res,
+                angle_rad: 0.0,
+                opacity,
+                tint: if is_hov { hover_tint } else { no_tint },
+            };
+            queue.write_buffer(&baked.label.uniform_buffer, 0, bytemuck::bytes_of(&label_u));
+        }
+
+        if let Some(ref label) = self.more_label {
+            let [rx, ry, rw, rh] = layout.open_row_rect;
+            let u = QuadUniform {
+                center: [(rx + rw * 0.5) * scale, (ry + rh * 0.5) * scale],
+                size: [rw * scale, rh * scale],
+                resolution: res,
+                angle_rad: 0.0,
+                opacity,
+                tint: if hover_more { hover_tint } else { no_tint },
+            };
+            queue.write_buffer(&label.uniform_buffer, 0, bytemuck::bytes_of(&u));
+        }
+
+        self.visible = opacity > 0.001;
+    }
+
     pub fn clear(&mut self) {
+        if !self.visible && self.baked_key.is_none() {
+            return;
+        }
         self.visible = false;
+        self.baked_slots.clear();
+        self.grid_bg = None;
+        self.more_circle = None;
+        self.more_label = None;
+        self.baked_key = None;
     }
 
     pub fn draw<'a>(&'a self, rpass: &mut wgpu::RenderPass<'a>) {
@@ -451,6 +862,10 @@ impl FanStackPipeline {
             return;
         }
         rpass.set_pipeline(&self.pipeline);
+        if let Some(ref bg) = self.grid_bg {
+            rpass.set_bind_group(0, &bg.bind_group, &[]);
+            rpass.draw(0..6, 0..1);
+        }
         for slot in &self.baked_slots {
             rpass.set_bind_group(0, &slot.label.bind_group, &[]);
             rpass.draw(0..6, 0..1);
@@ -590,5 +1005,93 @@ fn truncate_single_line(text: &str, max_chars: usize) -> String {
         let mut out: String = text.chars().take(max_chars.saturating_sub(1)).collect();
         out.push('…');
         out
+    }
+}
+
+
+#[allow(clippy::too_many_arguments)]
+fn draw_grid_panel(
+    pm: &mut Pixmap,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    tip_x: f32,
+    tip_y: f32,
+    position: dock_core::DockPosition,
+    r: f32,
+    is_dark: bool,
+    custom_tint: Option<[u8; 3]>,
+    alpha_u8: u8,
+) {
+    let r = r.min(w * 0.5).min(h * 0.5);
+    let mut pb = resvg::tiny_skia::PathBuilder::new();
+    pb.move_to(x + r, y);
+    pb.line_to(x + w - r, y);
+    pb.quad_to(x + w, y, x + w, y + r);
+    pb.line_to(x + w, y + h - r);
+    pb.quad_to(x + w, y + h, x + w - r, y + h);
+    pb.line_to(x + r, y + h);
+    pb.quad_to(x, y + h, x, y + h - r);
+    pb.line_to(x, y + r);
+    pb.quad_to(x, y, x + r, y);
+    pb.close();
+
+    let mut fill = resvg::tiny_skia::Paint::default();
+    fill.anti_alias = true;
+    let bg_alpha = alpha_u8.saturating_add(64).clamp(165, 242);
+    fill.set_color(if let Some([tr, tg, tb]) = custom_tint {
+        resvg::tiny_skia::Color::from_rgba8(tr, tg, tb, bg_alpha)
+    } else if is_dark {
+        resvg::tiny_skia::Color::from_rgba8(24, 26, 38, bg_alpha)
+    } else {
+        resvg::tiny_skia::Color::from_rgba8(245, 246, 250, bg_alpha)
+    });
+
+    if let Some(path) = pb.finish() {
+        pm.fill_path(&path, &fill, resvg::tiny_skia::FillRule::Winding, resvg::tiny_skia::Transform::identity(), None);
+
+        let mut stroke_paint = resvg::tiny_skia::Paint::default();
+        stroke_paint.anti_alias = true;
+        stroke_paint.set_color(if is_dark {
+            resvg::tiny_skia::Color::from_rgba8(255, 255, 255, 36)
+        } else {
+            resvg::tiny_skia::Color::from_rgba8(0, 0, 0, 28)
+        });
+        let stroke = resvg::tiny_skia::Stroke {
+            width: 1.25,
+            ..Default::default()
+        };
+        pm.stroke_path(&path, &stroke_paint, &stroke, resvg::tiny_skia::Transform::identity(), None);
+    }
+
+    // Flecha apuntando al ícono del dock
+    let half = 8.0_f32;
+    let mut apb = resvg::tiny_skia::PathBuilder::new();
+    match position {
+        dock_core::DockPosition::Bottom => {
+            apb.move_to(tip_x - half, y + h - 1.0);
+            apb.line_to(tip_x + half, y + h - 1.0);
+            apb.line_to(tip_x, tip_y);
+        }
+        dock_core::DockPosition::Top => {
+            apb.move_to(tip_x - half, y + 1.0);
+            apb.line_to(tip_x + half, y + 1.0);
+            apb.line_to(tip_x, tip_y);
+        }
+        dock_core::DockPosition::Left => {
+            apb.move_to(x + 1.0, tip_y - half);
+            apb.line_to(x + 1.0, tip_y + half);
+            apb.line_to(tip_x, tip_y);
+        }
+        dock_core::DockPosition::Right => {
+            apb.move_to(x + w - 1.0, tip_y - half);
+            apb.line_to(x + w - 1.0, tip_y + half);
+            apb.line_to(tip_x, tip_y);
+        }
+    }
+    apb.close();
+    if let Some(apath) = apb.finish() {
+        pm.fill_path(&apath, &fill, resvg::tiny_skia::FillRule::Winding, resvg::tiny_skia::Transform::identity(), None);
     }
 }

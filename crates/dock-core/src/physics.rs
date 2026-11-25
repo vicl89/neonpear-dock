@@ -630,7 +630,7 @@ impl DockPhysics {
                 + bottom_gap
                 + 10.0)
                 .ceil() as u32;
-            let base_side_w = (icon_inner_edge + MENU_GAP + 380.0 + 18.0).ceil() as u32;
+            let base_side_w = (icon_inner_edge + MENU_GAP + 720.0 + 18.0).ceil() as u32;
             canvas_w = canvas_w.max(base_side_w);
 
             let max_pill_len = rest_w + extra_per_icon * (n.min(4) as f32);

@@ -29,7 +29,7 @@ enum BlurBackend {
     Disabled,
 }
 
-type BlurKey = ((i32, i32, i32, i32, i32, i32), Option<(i32, i32, i32, i32)>);
+type BlurKey = ((i32, i32, i32, i32, i32, i32), Option<(i32, i32, i32, i32)>, Option<(i32, i32, i32, i32, i32)>);
 
 pub struct BlurController {
     backend: BlurBackend,
@@ -100,6 +100,7 @@ impl BlurController {
         pill: &PillRect,
         corner_radius: f32,
         menu: Option<&MenuLayout>,
+        stack_rect: Option<(f32, f32, f32, f32, f32)>,
         canvas_height: u32,
     ) {
         if matches!(self.backend, BlurBackend::External | BlurBackend::Disabled) {
@@ -123,7 +124,16 @@ impl BlurController {
             )
         });
 
-        let key: BlurKey = ((px, py, pw, ph, pr, ch), menu_rect);
+        let stack_rect_i = stack_rect.map(|(sx, sy, sw, sh, sr)| {
+            (
+                sx.round() as i32,
+                sy.round() as i32,
+                sw.round() as i32,
+                sh.round() as i32,
+                sr.round().max(0.0) as i32,
+            )
+        });
+        let key: BlurKey = ((px, py, pw, ph, pr, ch), menu_rect, stack_rect_i);
         if self.last_key == Some(key) {
             return;
         }
@@ -136,6 +146,9 @@ impl BlurController {
         let mut added = add_rounded_rect(&region, px, py, pw, ph, pr, ch);
         if let Some((mx, my, mw, mh)) = menu_rect {
             added |= add_rounded_rect(&region, mx, my, mw, mh, 12, ch);
+        }
+        if let Some((sx, sy, sw, sh, sr)) = stack_rect_i {
+            added |= add_rounded_rect(&region, sx, sy, sw, sh, sr, ch);
         }
 
         if !added {

@@ -48,6 +48,10 @@ pub enum ContextMenuAction {
     EjectDrive { block_path: String, drive_path: String },
     OpenPath(String),
     UnpinFolder(String),
+    SetFolderViewMode {
+        path: String,
+        mode: crate::FolderViewMode,
+    },
     ToggleAutoHide,
     ToggleMagnification,
     ToggleRecentApps,
@@ -95,7 +99,7 @@ pub fn build_menu_items(
     is_running: bool,
     open_windows: &[OpenWindowItem],
 ) -> Vec<ContextMenuItem> {
-    build_menu_items_localized(entry, is_running, open_windows, crate::Language::Auto)
+    build_menu_items_localized(entry, is_running, open_windows, crate::Language::Auto, crate::FolderViewMode::Auto)
 }
 
 pub fn build_menu_items_localized(
@@ -103,6 +107,7 @@ pub fn build_menu_items_localized(
     is_running: bool,
     open_windows: &[OpenWindowItem],
     language: crate::Language,
+    folder_view_mode: crate::FolderViewMode,
 ) -> Vec<ContextMenuItem> {
     let t = crate::i18n::menu_strings(language);
     let mut items = Vec::new();
@@ -276,11 +281,34 @@ pub fn build_menu_items_localized(
             });
         }
         DockEntryKind::Folder { path } => {
+            let modes = [
+                (crate::FolderViewMode::Fan, t.view_fan),
+                (crate::FolderViewMode::Grid, t.view_grid),
+                (crate::FolderViewMode::List, t.view_list),
+                (crate::FolderViewMode::Auto, t.view_auto),
+            ];
+            for (mode, label_text) in modes {
+                let label = if folder_view_mode == mode {
+                    format!("✓ {label_text}")
+                } else {
+                    format!("  {label_text}")
+                };
+                items.push(ContextMenuItem {
+                    label,
+                    enabled: true,
+                    destructive: false,
+                    separator_before: false,
+                    action: ContextMenuAction::SetFolderViewMode {
+                        path: path.clone(),
+                        mode,
+                    },
+                });
+            }
             items.push(ContextMenuItem {
                 label: t.open_drive.to_string(),
                 enabled: true,
                 destructive: false,
-                separator_before: false,
+                separator_before: true,
                 action: ContextMenuAction::OpenPath(path.clone()),
             });
             items.push(ContextMenuItem {

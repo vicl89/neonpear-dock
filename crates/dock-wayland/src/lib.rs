@@ -89,10 +89,17 @@ struct DragState {
     reordered: bool,
 }
 
+enum StackLayout {
+    Fan(dock_core::stack::FanLayout),
+    Grid(dock_core::stack::GridLayout),
+    List(dock_core::stack::ListLayout),
+}
+
 struct FanStackState {
     entry_idx: usize,
+    view_mode: dock_core::FolderViewMode,
     data: dock_core::stack::FanStackData,
-    layout: dock_core::stack::FanLayout,
+    layout: StackLayout,
     hovered_slot: Option<usize>,
     hover_more: bool,
     progress: f32,
@@ -102,31 +109,61 @@ struct FanStackState {
 
 impl FanStackState {
     fn hit_test(&self, x: f32, y: f32) -> (Option<usize>, bool) {
-        for (i, slot) in self.layout.slots.iter().enumerate() {
-            let in_icon = x >= slot.icon_x
-                && x <= slot.icon_x + slot.icon_size
-                && y >= slot.icon_y
-                && y <= slot.icon_y + slot.icon_size;
-            let in_label = x >= slot.label_x
-                && x <= slot.label_x + slot.label_w
-                && y >= slot.label_y
-                && y <= slot.label_y + slot.label_h;
-            if in_icon || in_label {
-                return (Some(i), false);
+        match &self.layout {
+            StackLayout::Fan(layout) => {
+                for (i, slot) in layout.slots.iter().enumerate() {
+                    let in_icon = x >= slot.icon_x
+                        && x <= slot.icon_x + slot.icon_size
+                        && y >= slot.icon_y
+                        && y <= slot.icon_y + slot.icon_size;
+                    let in_label = x >= slot.label_x
+                        && x <= slot.label_x + slot.label_w
+                        && y >= slot.label_y
+                        && y <= slot.label_y + slot.label_h;
+                    if in_icon || in_label {
+                        return (Some(i), false);
+                    }
+                }
+                if let Some([cx, cy]) = layout.more_button_center {
+                    let r = layout.more_button_radius + 4.0;
+                    if (x - cx).hypot(y - cy) <= r {
+                        return (None, true);
+                    }
+                }
+                if let Some([lx, ly, lw, lh]) = layout.more_label_rect {
+                    if x >= lx && x <= lx + lw && y >= ly && y <= ly + lh {
+                        return (None, true);
+                    }
+                }
+                (None, false)
+            }
+            StackLayout::Grid(layout) => {
+                for (i, slot) in layout.slots.iter().enumerate() {
+                    let [cx, cy, cw, ch] = slot.cell_rect;
+                    if x >= cx && x <= cx + cw && y >= cy && y <= cy + ch {
+                        return (Some(i), false);
+                    }
+                }
+                let [cx, cy, cw, ch] = layout.open_button_slot.cell_rect;
+                if x >= cx && x <= cx + cw && y >= cy && y <= cy + ch {
+                    return (None, true);
+                }
+                (None, false)
+            }
+            StackLayout::List(layout) => {
+                for (i, slot) in layout.slots.iter().enumerate() {
+                    let [rx, ry, rw, rh] = slot.row_rect;
+                    if x >= rx && x <= rx + rw && y >= ry && y <= ry + rh {
+                        return (Some(i), false);
+                    }
+                }
+                let [rx, ry, rw, rh] = layout.open_row_rect;
+                if x >= rx && x <= rx + rw && y >= ry && y <= ry + rh {
+                    return (None, true);
+                }
+                (None, false)
             }
         }
-        if let Some([cx, cy]) = self.layout.more_button_center {
-            let r = self.layout.more_button_radius + 4.0;
-            if (x - cx).hypot(y - cy) <= r {
-                return (None, true);
-            }
-        }
-        if let Some([lx, ly, lw, lh]) = self.layout.more_label_rect {
-            if x >= lx && x <= lx + lw && y >= ly && y <= ly + lh {
-                return (None, true);
-            }
-        }
-        (None, false)
     }
 }
 
@@ -639,10 +676,19 @@ impl DockApp {
             ContextMenuAction::UnpinFolder(folder_path) => {
                 let before = self.config.pinned_folders.len();
                 self.config.pinned_folders.retain(|p| p != &folder_path);
+                self.config.folder_view_modes.remove(&folder_path);
                 if self.config.pinned_folders.len() != before {
                     let _ = self.config.save();
                     self.sync_dock_state();
                 }
+            }
+            ContextMenuAction::SetFolderViewMode { path, mode } => {
+                if mode == dock_core::FolderViewMode::Auto {
+                    self.config.folder_view_modes.remove(&path);
+                } else {
+                    self.config.folder_view_modes.insert(path, mode);
+                }
+                let _ = self.config.save();
             }
             ContextMenuAction::EjectDrive {
                 block_path,
@@ -811,6 +857,46 @@ impl DockApp {
             rects.push(base_rect);
         }
 
+        // Cuando hay popover de carpeta (Grid/List) abierto, añadimos su caja y puente a la píldora
+        if let Some(ref fs) = self.fan_stack {
+            let box_rect = match &fs.layout {
+                StackLayout::Grid(gl) => Some(gl.box_rect),
+                StackLayout::List(ll) => Some(ll.box_rect),
+                StackLayout::Fan(_) => None,
+            };
+            if let Some([bx, by, bw, bh]) = box_rect {
+                let (sx0, sx1, sy0, sy1) = match self.config.position {
+                    dock_core::DockPosition::Left => (
+                        (layout.pill.x + layout.pill.width - 4.0).min(bx - 4.0).floor().clamp(0.0, cw as f32) as i32,
+                        (bx + bw + 4.0).ceil().clamp(0.0, cw as f32) as i32,
+                        (by - 4.0).floor().clamp(0.0, ch as f32) as i32,
+                        (by + bh + 4.0).ceil().clamp(0.0, ch as f32) as i32,
+                    ),
+                    dock_core::DockPosition::Right => (
+                        (bx - 4.0).floor().clamp(0.0, cw as f32) as i32,
+                        (layout.pill.x + 4.0).max(bx + bw + 4.0).ceil().clamp(0.0, cw as f32) as i32,
+                        (by - 4.0).floor().clamp(0.0, ch as f32) as i32,
+                        (by + bh + 4.0).ceil().clamp(0.0, ch as f32) as i32,
+                    ),
+                    dock_core::DockPosition::Top => (
+                        (bx - 4.0).floor().clamp(0.0, cw as f32) as i32,
+                        (bx + bw + 4.0).ceil().clamp(0.0, cw as f32) as i32,
+                        (layout.pill.y + layout.pill.height - 4.0).min(by - 4.0).floor().clamp(0.0, ch as f32) as i32,
+                        (by + bh + 4.0).ceil().clamp(0.0, ch as f32) as i32,
+                    ),
+                    dock_core::DockPosition::Bottom => (
+                        (bx - 4.0).floor().clamp(0.0, cw as f32) as i32,
+                        (bx + bw + 4.0).ceil().clamp(0.0, cw as f32) as i32,
+                        (by - 4.0).floor().clamp(0.0, ch as f32) as i32,
+                        (layout.pill.y + 4.0).max(by + bh + 4.0).ceil().clamp(0.0, ch as f32) as i32,
+                    ),
+                };
+                if sx1 > sx0 && sy1 > sy0 {
+                    rects.push((sx0, sy0, sx1 - sx0, sy1 - sy0));
+                }
+            }
+        }
+
         // Cuando hay menú abierto, añadimos su caja y el puente continuo hasta la píldora
         if self.physics.is_menu_open() {
             if let Some(menu) = &layout.menu {
@@ -915,6 +1001,7 @@ impl DockApp {
         }
         if fan_close_done {
             self.fan_stack = None;
+            self.sync_canvas_size();
         }
         let phys_anim = self.physics.step(dt, &self.config) || fan_anim;
 
@@ -947,11 +1034,22 @@ impl DockApp {
             );
         }
 
+        let stack_blur_rect = self.fan_stack.as_ref().and_then(|fs| {
+            if fs.progress <= 0.35 {
+                return None;
+            }
+            match &fs.layout {
+                StackLayout::Grid(gl) => Some((gl.box_rect[0], gl.box_rect[1], gl.box_rect[2], gl.box_rect[3], 14.0)),
+                StackLayout::List(ll) => Some((ll.box_rect[0], ll.box_rect[1], ll.box_rect[2], ll.box_rect[3], 12.0)),
+                StackLayout::Fan(_) => None,
+            }
+        });
         self.blur.update_regions(
             &self.compositor_state,
             &layout.pill,
             self.config.corner_radius,
             layout.menu.as_ref(),
+            stack_blur_rect,
             layout.canvas_height,
         );
         self.update_input_region(&layout);
@@ -999,27 +1097,96 @@ impl DockApp {
                     (cw * 0.5, (layout.pill.y - 10.0).max(120.0))
                 };
 
-                fs.layout = dock_core::stack::compute_fan_layout(
-                    &fs.data,
-                    ax,
-                    ay,
-                    cw,
-                    ch,
-                    self.config.icon_size,
-                    self.config.position,
-                    fs.progress,
-                    self.config.language.resolve(),
-                );
-                if fs.dirty {
-                    renderer.set_fan_stack(
-                        &fs.data,
-                        &fs.layout,
-                        fs.hovered_slot,
-                        fs.hover_more,
-                        effective_dark >= 0.5,
-                        fs.progress.clamp(0.0, 1.0),
-                    );
-                    fs.dirty = false;
+                match fs.view_mode {
+                    dock_core::FolderViewMode::List => {
+                        let list_layout = dock_core::stack::compute_list_layout(
+                            &fs.data,
+                            ax,
+                            ay,
+                            cw,
+                            ch,
+                            self.config.icon_size,
+                            self.config.position,
+                            fs.progress,
+                            self.config.language.resolve(),
+                        );
+                        if fs.dirty {
+                            let tint_rgb = if matches!(self.config.glass_theme, dock_core::GlassTheme::Custom) {
+                                Some(self.config.custom_tint)
+                            } else {
+                                None
+                            };
+                            renderer.set_list_stack(
+                                &fs.data,
+                                &list_layout,
+                                fs.hovered_slot,
+                                fs.hover_more,
+                                effective_dark >= 0.5,
+                                tint_rgb,
+                                self.config.glass_opacity,
+                                fs.progress.clamp(0.0, 1.0),
+                            );
+                            fs.dirty = false;
+                        }
+                        fs.layout = StackLayout::List(list_layout);
+                    }
+                    dock_core::FolderViewMode::Grid => {
+                        let grid_layout = dock_core::stack::compute_grid_layout(
+                            &fs.data,
+                            ax,
+                            ay,
+                            cw,
+                            ch,
+                            self.config.icon_size,
+                            self.config.position,
+                            fs.progress,
+                            self.config.language.resolve(),
+                        );
+                        if fs.dirty {
+                            let tint_rgb = if matches!(self.config.glass_theme, dock_core::GlassTheme::Custom) {
+                                Some(self.config.custom_tint)
+                            } else {
+                                None
+                            };
+                            renderer.set_grid_stack(
+                                &fs.data,
+                                &grid_layout,
+                                fs.hovered_slot,
+                                fs.hover_more,
+                                effective_dark >= 0.5,
+                                tint_rgb,
+                                self.config.glass_opacity,
+                                fs.progress.clamp(0.0, 1.0),
+                            );
+                            fs.dirty = false;
+                        }
+                        fs.layout = StackLayout::Grid(grid_layout);
+                    }
+                    _ => {
+                        let fan_layout = dock_core::stack::compute_fan_layout(
+                            &fs.data,
+                            ax,
+                            ay,
+                            cw,
+                            ch,
+                            self.config.icon_size,
+                            self.config.position,
+                            fs.progress,
+                            self.config.language.resolve(),
+                        );
+                        if fs.dirty {
+                            renderer.set_fan_stack(
+                                &fs.data,
+                                &fan_layout,
+                                fs.hovered_slot,
+                                fs.hover_more,
+                                effective_dark >= 0.5,
+                                fs.progress.clamp(0.0, 1.0),
+                            );
+                            fs.dirty = false;
+                        }
+                        fs.layout = StackLayout::Fan(fan_layout);
+                    }
                 }
             } else {
                 renderer.clear_fan_stack();
@@ -1310,6 +1477,9 @@ impl PointerHandler for DockApp {
                     needs_redraw = true;
                 }
                 PointerEventKind::Press { button, .. } if button == BTN_RIGHT => {
+                    if self.fan_stack.is_some() {
+                        self.fan_stack = None;
+                    }
                     self.menu_pressed_item = None;
                     self.menu_leave_deadline = None;
                     if let Some(idx) = self.physics.icon_at_cursor(&self.config) {
@@ -1321,7 +1491,11 @@ impl PointerHandler for DockApp {
                                 }
                                 DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad | DockEntryKind::MountedDrive(_) | DockEntryKind::Folder { .. } => Vec::new(),
                             };
-                            let items = build_menu_items_localized(entry, is_running, &open_windows, self.config.language);
+                            let folder_view_mode = match &entry.kind {
+                                DockEntryKind::Folder { path } => self.config.folder_view_mode(path),
+                                _ => dock_core::FolderViewMode::Auto,
+                            };
+                            let items = build_menu_items_localized(entry, is_running, &open_windows, self.config.language, folder_view_mode);
                             if self.physics.open_menu(idx, items) {
                                 self.hide_deadline = None;
                                 if !self.sync_canvas_size() {
@@ -1457,22 +1631,67 @@ impl PointerHandler for DockApp {
                                             .spawn();
                                     }
                                 DockEntryKind::Folder { path } => {
-                                        let data = dock_core::stack::build_fan_stack_data(path, "");
+                                        let configured_mode = self.config.folder_view_mode(path);
+                                        let mut data = if configured_mode == dock_core::FolderViewMode::Fan {
+                                            dock_core::stack::build_fan_stack_data(path, "")
+                                        } else {
+                                            dock_core::stack::build_folder_stack_data(
+                                                path,
+                                                dock_core::stack::MAX_GRID_ITEMS,
+                                            )
+                                        };
+                                        let resolved_mode = dock_core::stack::resolve_folder_view_mode(
+                                            configured_mode,
+                                            data.total_count,
+                                        );
+                                        if resolved_mode == dock_core::FolderViewMode::Fan && data.items.len() > 8 {
+                                            data.items.truncate(8);
+                                            data.remaining_count = data.total_count.saturating_sub(data.items.len());
+                                        }
                                         let cw = self.requested_width.max(1) as f32;
                                         let ch = self.requested_height.max(1) as f32;
-                                        let layout = dock_core::stack::compute_fan_layout(
-                                            &data,
-                                            event.position.0 as f32,
-                                            event.position.1 as f32,
-                                            cw,
-                                            ch,
-                                            self.config.icon_size,
-                                            self.config.position,
-                                            0.05,
-                                            self.config.language.resolve(),
-                                        );
+                                        let layout = match resolved_mode {
+                                            dock_core::FolderViewMode::List => {
+                                                StackLayout::List(dock_core::stack::compute_list_layout(
+                                                    &data,
+                                                    event.position.0 as f32,
+                                                    event.position.1 as f32,
+                                                    cw,
+                                                    ch,
+                                                    self.config.icon_size,
+                                                    self.config.position,
+                                                    0.05,
+                                                    self.config.language.resolve(),
+                                                ))
+                                            }
+                                            dock_core::FolderViewMode::Grid => {
+                                                StackLayout::Grid(dock_core::stack::compute_grid_layout(
+                                                    &data,
+                                                    event.position.0 as f32,
+                                                    event.position.1 as f32,
+                                                    cw,
+                                                    ch,
+                                                    self.config.icon_size,
+                                                    self.config.position,
+                                                    0.05,
+                                                    self.config.language.resolve(),
+                                                ))
+                                            }
+                                            _ => StackLayout::Fan(dock_core::stack::compute_fan_layout(
+                                                &data,
+                                                event.position.0 as f32,
+                                                event.position.1 as f32,
+                                                cw,
+                                                ch,
+                                                self.config.icon_size,
+                                                self.config.position,
+                                                0.05,
+                                                self.config.language.resolve(),
+                                            )),
+                                        };
                                         self.fan_stack = Some(FanStackState {
                                             entry_idx: idx,
+                                            view_mode: resolved_mode,
                                             data,
                                             layout,
                                             hovered_slot: None,
@@ -1481,6 +1700,7 @@ impl PointerHandler for DockApp {
                                             closing: false,
                                             dirty: true,
                                         });
+                                        self.sync_canvas_size();
                                         self.hide_deadline = None;
                                     }
                                 }

@@ -56,6 +56,16 @@ pub enum HideMode {
     DodgeActive,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FolderViewMode {
+    #[default]
+    Auto,
+    Fan,
+    Grid,
+    List,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DockConfig {
@@ -81,6 +91,8 @@ pub struct DockConfig {
     pub show_mounted_drives: bool,
     #[serde(default)]
     pub pinned_folders: Vec<String>,
+    #[serde(default)]
+    pub folder_view_modes: std::collections::BTreeMap<String, FolderViewMode>,
     pub icon_spacing: f32,
     pub pill_padding_x: f32,
     pub pill_padding_y: f32,
@@ -120,6 +132,7 @@ impl Default for DockConfig {
             show_trash: true,
             show_mounted_drives: true,
             pinned_folders: Vec::new(),
+            folder_view_modes: std::collections::BTreeMap::new(),
             icon_spacing: 8.0,
             pill_padding_x: 12.0,
             pill_padding_y: 10.0,
@@ -262,3 +275,9 @@ pub struct MountedDrive {
 }
 
 pub mod stack;
+
+impl DockConfig {
+    pub fn folder_view_mode(&self, path: &str) -> FolderViewMode {
+        self.folder_view_modes.get(path).copied().unwrap_or_default()
+    }
+}

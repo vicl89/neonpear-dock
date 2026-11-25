@@ -1,6 +1,6 @@
 Name:           neonpear-dock
-Version:        0.5.0
-Release:        2%{?dist}
+Version:        0.5.5
+Release:        1%{?dist}
 Summary:        Dock Wayland moderno con efecto cristal para KDE Plasma
 License:        MIT
 URL:            https://github.com/vicl89/neonpear-dock
@@ -60,6 +60,11 @@ install -Dm644 packaging/io.github.vicl89.neonpear-dock.metainfo.xml %{buildroot
 %{_datadir}/metainfo/io.github.vicl89.neonpear-dock.metainfo.xml
 
 %changelog
+* Wed Nov 25 2026 FVidriales <fernando.vidriales.89@gmail.com> - 0.5.5-1
+- Add Grid and List folder stack view modes with Wayland blur and custom tint support
+- Fix vertical dock alignment and input region handling for folder popovers
+- Free GPU stack sprites and buffers when popovers close
+
 * Wed Nov 25 2026 FVidriales <fernando.vidriales.89@gmail.com> - 0.5.0-2
 - Incluir io.github.vicl89.neonpear-dock.metainfo.xml en %files del paquete RPM
 
