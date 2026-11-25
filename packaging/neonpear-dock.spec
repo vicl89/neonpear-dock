@@ -57,6 +57,7 @@ install -Dm644 packaging/io.github.vicl89.neonpear-dock.metainfo.xml %{buildroot
 %{_datadir}/applications/neonpear-dock.desktop
 %{_datadir}/applications/neonpear-dock-settings.desktop
 %{_datadir}/icons/hicolor/scalable/apps/NeonPearDock.svg
+%{_datadir}/metainfo/io.github.vicl89.neonpear-dock.metainfo.xml
 
 %changelog
 * Wed Nov 25 2026 FVidriales <fernando.vidriales.89@gmail.com> - 0.5.0-2
