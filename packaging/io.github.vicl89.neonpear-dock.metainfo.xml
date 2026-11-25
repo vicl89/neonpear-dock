@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.vicl89.neonpear-dock</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>NeonPear Dock</name>
+  <summary>Native Wayland dock with glass effect for KDE Plasma 6</summary>
+  <summary xml:lang="es">Dock nativo para Wayland con efecto cristal para KDE Plasma 6</summary>
+
+  <developer id="io.github.vicl89">
+    <name>FVidriales</name>
+  </developer>
+
+  <description>
+    <p>
+      NeonPear Dock is a lightweight, hardware-accelerated Wayland dock written in Rust
+      using wgpu and wlr-layer-shell, designed for KDE Plasma 6.
+    </p>
+    <p xml:lang="es">
+      NeonPear Dock es un dock ligero para Wayland acelerado por hardware, escrito en Rust
+      con wgpu y wlr-layer-shell, diseñado para KDE Plasma 6.
+    </p>
+    <ul>
+      <li>Translucent glass themes and smooth parabolic icon magnification</li>
+      <li xml:lang="es">Temas de cristal translúcido y magnificación parabólica fluida</li>
+      <li>Intellihide, multi-monitor support, and drag-and-drop pinning</li>
+      <li xml:lang="es">Ocultado inteligente (Intellihide), soporte multimonitor y arrastrar y soltar</li>
+      <li>Real-time notification badges and mounted USB drive detection via UDisks2</li>
+      <li xml:lang="es">Globos de notificaciones en tiempo real y detección de unidades USB vía UDisks2</li>
+      <li>Built-in graphical settings manager with 9-language localization</li>
+      <li xml:lang="es">Ventana de configuración gráfica integrada con soporte para 9 idiomas</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">neonpear-dock.desktop</launchable>
+
+  <provides>
+    <binary>neonpear-dock</binary>
+    <binary>neonpear-dock-settings</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/vicl89/neonpear-dock</url>
+  <url type="bugtracker">https://github.com/vicl89/neonpear-dock/issues</url>
+  <url type="donation">https://paypal.me/fvidriales</url>
+
+  <categories>
+    <category>Utility</category>
+  </categories>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.4.0" date="2026-11-24">
+      <description>
+        <p>Stable release with Intellihide, notification badges, multi-monitor support, and Fedora COPR packaging.</p>
+        <p xml:lang="es">Versión estable con Intellihide, globos de notificación, soporte multimonitor y empaquetado para Fedora COPR.</p>
+      </description>
+    </release>
+  </releases>
+</component>
