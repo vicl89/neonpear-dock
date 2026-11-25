@@ -1,32 +1,26 @@
-# Hoja de ruta — NeonPear Dock
+# Hoja de Ruta — NeonPear Dock
 
-Plan de evolución para **NeonPear Dock** (nativo para Wayland y KDE Plasma 6).
+Plan de desarrollo desde `v0.6.0` hacia `v1.0.0`, priorizando rendimiento nativo en Wayland y bajo consumo de recursos.
 
-## v0.3.0 (Estable)
-- [x] Arquitectura modular en Rust (`dock-core`, `dock-render`, `dock-wayland`, `dock-daemon`, `dock-settings`).
-- [x] Soporte en las 4 posiciones de pantalla (Abajo, Arriba, Izquierda, Derecha) y auto-escalado proporcional.
-- [x] Tooltips y menús contextuales en 4 direcciones con puente de región de entrada.
-- [x] Reordenamiento directo (*Drag & Drop*) de íconos y espaciadores sobre el dock.
-- [x] Cambio rápido entre múltiples ventanas (clic medio y rueda del ratón).
-- [x] Temas visuales de cristal (Automático/Plasma, Oscuro, Claro y Personalizado con color de tinte).
-- [x] Tests unitarios base en `dock-core`.
-- [x] Pestaña **Acerca de** en `neonpear-dock-settings`.
-- [x] Empaquetado estable RPM (`Release: 1%{?dist}`) y publicación del release `v0.3.0` en GitHub.
-- [ ] Incrustar video de demostración de YouTube en `README.md`.
+## Próximas funciones
 
-## v0.4.0 (Internacionalización, CI y calidad — Listo para release)
-- [x] Workflow de GitHub Actions para ejecutar `cargo test --workspace` y `cargo clippy` en cada commit.
-- [x] Cobertura ampliada de tests unitarios en `dock-core` (magnificación, rebote, auto-ocultado y *hit-testing* en las 4 posiciones).
-- [x] **Soporte multiidioma (i18n)** en 9 idiomas: Español (`es`), Inglés (`en`), Francés (`fr`), Italiano (`it`), Portugués (`pt`), Chino (`zh`), Japonés (`ja`), Coreano (`ko`) y Ruso (`ru`).
-  - Detección automática del *locale* del sistema y selector manual en `neonpear-dock-settings`.
-  - Respaldo automático de fuentes CJK y cirílicas en `dock-settings` y `dock-render`.
+| Categoría | Función | Prioridad / Complejidad | Versión objetivo |
+| :--- | :--- | :--- | :--- |
+| **Rendimiento** | Cargar únicamente la tipografía activa del sistema al arranque (evitar escaneo completo de fuentes) y evaluar recarga dinámica al cambiar la fuente del sistema | Alta / Media | `v0.6` |
+| **GUI / Ajustes** | Adoptar el tamaño de fuente por defecto del sistema en la ventana de ajustes y rediseñar su disposición para aprovechar mejor el espacio horizontal | Alta / Baja | `v0.6` |
+| **GUI / Stacks** | Ícono SVG dedicado para la flecha en modos Abanico y Cuadrícula (variante clara/oscura y selección adaptativa por luminancia en modo personalizado) | Media / Baja | `v0.6` |
+| **Interacción** | Quitar accesos fijados arrastrándolos fuera del dock (*drag & drop* hacia afuera) | Alta / Baja | `v0.6` |
+| **Carpetas / Stacks** | Navegación dentro de subcarpetas (clic en `▸` en modo Lista/Grid) + botón "Atrás" | Alta / Media | `v0.6` |
+| **Carpetas / Stacks** | Ordenar contenido (por nombre, fecha de modificación o tipo) desde clic derecho | Media / Baja | `v0.6` |
+| **Multi-monitor** | Selector de monitor específico o modo "seguir al cursor" en configuraciones multi-pantalla | Alta / Media | `v0.6` |
+| **Ventanas y Flujo** | Vista previa de ventanas al pasar el cursor (miniaturas o lista de ventanas abiertas) | Alta / Alta | `v0.7` |
 
-## v0.5.0 (Distribución y ecosistema)
-- [x] **Fan Stack** estilo macOS acelerado por GPU en las 4 posiciones + i18n.
-- [x] Soporte dinámico de unidades USB montadas (`UDisks2`) y metadatos AppStream para KDE Discover.
-- [x] Repositorio **Fedora COPR** para instalación y actualizaciones automáticas con `dnf`.
-- [ ] Soporte opcional para `wlr-foreign-toplevel-management` (rastreo de ventanas en compositores Wayland como Hyprland o Sway, manteniendo KDE Plasma 6 como entorno principal).
+## Fuera de alcance (Descartado)
 
-## v1.0.0 (Madurez)
-- [ ] Importación y exportación de configuraciones (`config.toml`) desde `neonpear-dock-settings`.
-- [ ] Pulido final de UX y estabilidad a largo plazo en KDE Plasma 6.
+Para mantener el dock ligero, nativo y con bajo consumo de RAM, las siguientes funciones quedan descartadas:
+
+* **Distribución en AppImage / Flatpak:** los paquetes nativos (RPM / COPR) garantizan integración directa con el entorno y evitan la sobrecarga de dependencias en contenedor.
+* **Applets y widgets complejos dentro del dock** (reloj, clima, monitores de sistema).
+* **Soporte para X11:** enfoque exclusivo *Wayland-first*.
+* **Animaciones 3D o efectos pesados de partículas.**
+* **Perfiles/presets de tema exportables** e **indicadores de app activa personalizables.**

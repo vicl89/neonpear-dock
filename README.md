@@ -49,6 +49,16 @@ Para el detalle cronológico completo, consulta [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
+## Hoja de ruta
+
+El plan de desarrollo hacia `v1.0.0` (priorizando rendimiento nativo en Wayland y bajo consumo de RAM) se encuentra detallado en [ROADMAP.md](ROADMAP.md). Entre las próximas funciones destacan:
+
+* **Rendimiento (`v0.6`):** carga exclusiva de la tipografía activa del sistema al arranque (sin escaneo completo de fuentes).
+* **GUI y Ajustes (`v0.6`):** adopción del tamaño de fuente del sistema, mejor aprovechamiento del espacio horizontal en la ventana de ajustes e ícono SVG adaptativo por luminancia para la flecha en Abanico/Cuadrícula.
+* **Interacción y Stacks (`v0.6`):** quitar accesos arrastrándolos fuera del dock, navegación dentro de subcarpetas y ordenamiento de archivos.
+* **Multi-monitor (`v0.6`):** selector de monitor o modo "seguir al cursor".
+* **Ventanas (`v0.7`):** vista previa de ventanas abiertas al pasar el cursor.
+
 ## Instalación en Fedora
 
 Descarga el paquete `.rpm` más reciente desde la sección de [Releases](https://github.com/vicl89/neonpear-dock/releases) e instálalo con `dnf`:
