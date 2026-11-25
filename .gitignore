@@ -1,3 +1,4 @@
 /target
 *.rpm
 *.tmp
+nohup.out
