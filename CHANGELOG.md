@@ -2,6 +2,17 @@
 
 Historial de cambios y evolución de **NeonPear Dock** (anteriormente *Glassdock*).
 
+## [0.5.0] - 2026-11-25
+### Added
+- **Fan Stack estilo macOS acelerado por GPU (`wgpu`)**: carpetas fijadas en el dock que se despliegan en abanico a 60 fps con animación *ease-out*, cápsulas de texto rotadas, tamaño dinámico ligado a `icon_size` y soporte completo en las 4 posiciones (Abajo, Arriba, Izquierda y Derecha).
+- Traducción del resumen de elementos del Fan Stack en los 9 idiomas soportados (`i18n`).
+- Soporte dinámico de **unidades USB montadas** vía `UDisks2` con menú contextual para abrir y expulsar.
+- Metadatos **AppStream** (`io.github.vicl89.neonpear-dock.metainfo.xml`) para integración con KDE Discover.
+
+### Fixed
+- Preservación de `pinned_folders` al guardar cambios desde `neonpear-dock-settings`.
+- Reducción de uso de CPU en el *watcher* de la papelera ignorando eventos `inotify` no mutantes.
+
 ## [0.4.0] - 2026-11-24
 ### Added
 - Soporte multiidioma (**i18n**) en 9 idiomas: Español (`es`), Inglés (`en`), Francés (`fr`), Italiano (`it`), Portugués (`pt`), Chino (`zh`), Japonés (`ja`), Coreano (`ko`) y Ruso (`ru`).

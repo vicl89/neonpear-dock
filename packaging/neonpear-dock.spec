@@ -1,6 +1,6 @@
 Name:           neonpear-dock
-Version:        0.4.0
-Release:        2%{?dist}
+Version:        0.5.0
+Release:        1%{?dist}
 Summary:        Dock Wayland moderno con efecto cristal para KDE Plasma
 License:        MIT
 URL:            https://github.com/vicl89/neonpear-dock
@@ -48,6 +48,7 @@ install -Dm644 packaging/neonpear-dock.desktop %{buildroot}%{_sysconfdir}/xdg/au
 install -Dm644 packaging/neonpear-dock.desktop %{buildroot}%{_datadir}/applications/neonpear-dock.desktop
 install -Dm644 packaging/neonpear-dock-settings.desktop %{buildroot}%{_datadir}/applications/neonpear-dock-settings.desktop
 install -Dm644 assets/NeonPearDock.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/NeonPearDock.svg
+install -Dm644 packaging/io.github.vicl89.neonpear-dock.metainfo.xml %{buildroot}%{_datadir}/metainfo/io.github.vicl89.neonpear-dock.metainfo.xml
 
 %files
 %{_bindir}/neonpear-dock
@@ -58,5 +59,10 @@ install -Dm644 assets/NeonPearDock.svg %{buildroot}%{_datadir}/icons/hicolor/sca
 %{_datadir}/icons/hicolor/scalable/apps/NeonPearDock.svg
 
 %changelog
+* Wed Nov 25 2026 FVidriales <fernando.vidriales.89@gmail.com> - 0.5.0-1
+- Fan Stack estilo macOS acelerado por GPU en las 4 posiciones del dock
+- Soporte dinámico de unidades USB (UDisks2) y metadatos AppStream para KDE Discover
+- Traducción completa del Fan Stack en 9 idiomas y preservación de carpetas fijadas
+
 * Tue Nov 24 2026 FVidriales <fernando.vidriales.89@gmail.com> - 0.4.0-2
 - Compilación desde código fuente (SRPM) con dependencias empaquetadas para Fedora COPR

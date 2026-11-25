@@ -51,6 +51,12 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.5.0" date="2026-11-25">
+      <description>
+        <p>Added GPU-accelerated macOS-style Fan Stack across all 4 dock positions, dynamic UDisks2 USB drives support, and full 9-language i18n.</p>
+        <p xml:lang="es">Se añade Fan Stack estilo macOS acelerado por GPU en las 4 posiciones, soporte dinámico de unidades USB (UDisks2) e internacionalización en 9 idiomas.</p>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-11-24">
       <description>
         <p>Stable release with Intellihide, notification badges, multi-monitor support, and Fedora COPR packaging.</p>

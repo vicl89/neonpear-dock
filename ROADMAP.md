@@ -21,8 +21,10 @@ Plan de evolución para **NeonPear Dock** (nativo para Wayland y KDE Plasma 6).
   - Detección automática del *locale* del sistema y selector manual en `neonpear-dock-settings`.
   - Respaldo automático de fuentes CJK y cirílicas en `dock-settings` y `dock-render`.
 
-## v0.5.0+ (Distribución y ecosistema)
-- [ ] Repositorio **Fedora COPR** para instalación y actualizaciones automáticas con `dnf`.
+## v0.5.0 (Distribución y ecosistema)
+- [x] **Fan Stack** estilo macOS acelerado por GPU en las 4 posiciones + i18n.
+- [x] Soporte dinámico de unidades USB montadas (`UDisks2`) y metadatos AppStream para KDE Discover.
+- [x] Repositorio **Fedora COPR** para instalación y actualizaciones automáticas con `dnf`.
 - [ ] Soporte opcional para `wlr-foreign-toplevel-management` (rastreo de ventanas en compositores Wayland como Hyprland o Sway, manteniendo KDE Plasma 6 como entorno principal).
 
 ## v1.0.0 (Madurez)
