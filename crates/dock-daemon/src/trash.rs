@@ -3,7 +3,7 @@ use std::fs;
 use calloop::channel::Sender;
 use dock_core::desktop::{is_trash_non_empty, trash_files_dir};
 use dock_wayland::SystemEvent;
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 /// Inicia un monitor en tiempo real sobre `~/.local/share/Trash/files`.
 /// Devuelve el watcher para mantenerlo vivo durante toda la sesión del dock.
@@ -19,7 +19,10 @@ pub fn spawn_trash_watcher(
 
     let mut last_full = initial_full;
     let mut watcher = match notify::recommended_watcher(move |res: notify::Result<Event>| {
-        if res.is_ok() {
+        if let Ok(event) = res {
+            if !matches!(event.kind, EventKind::Create(_) | EventKind::Remove(_) | EventKind::Modify(_)) {
+                return;
+            }
             let now_full = is_trash_non_empty();
             if now_full != last_full {
                 last_full = now_full;
