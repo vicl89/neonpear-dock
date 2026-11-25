@@ -1,6 +1,6 @@
 Name:           neonpear-dock
 Version:        0.5.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Dock Wayland moderno con efecto cristal para KDE Plasma
 License:        MIT
 URL:            https://github.com/vicl89/neonpear-dock
@@ -59,6 +59,9 @@ install -Dm644 packaging/io.github.vicl89.neonpear-dock.metainfo.xml %{buildroot
 %{_datadir}/icons/hicolor/scalable/apps/NeonPearDock.svg
 
 %changelog
+* Wed Nov 25 2026 FVidriales <fernando.vidriales.89@gmail.com> - 0.5.0-2
+- Incluir io.github.vicl89.neonpear-dock.metainfo.xml en %files del paquete RPM
+
 * Wed Nov 25 2026 FVidriales <fernando.vidriales.89@gmail.com> - 0.5.0-1
 - Fan Stack estilo macOS acelerado por GPU en las 4 posiciones del dock
 - Soporte dinámico de unidades USB (UDisks2) y metadatos AppStream para KDE Discover
