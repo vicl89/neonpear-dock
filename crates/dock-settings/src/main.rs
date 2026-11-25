@@ -481,6 +481,9 @@ impl eframe::App for SettingsApp {
                         if ui.checkbox(&mut self.config.show_trash, t.show_trash).changed() {
                             self.dirty = true;
                         }
+                        if ui.checkbox(&mut self.config.show_mounted_drives, t.show_mounted_drives).changed() {
+                            self.dirty = true;
+                        }
                         if ui.checkbox(&mut self.config.active_apps_only, t.active_apps_only).changed() {
                             self.dirty = true;
                         }

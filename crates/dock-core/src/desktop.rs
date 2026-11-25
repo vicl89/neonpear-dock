@@ -33,6 +33,7 @@ pub fn make_spacer_app(id: String) -> DesktopApp {
 pub enum DockEntryKind {
     App(DesktopApp),
     Trash { full: bool },
+    MountedDrive(crate::MountedDrive),
     Spacer { id: String },
     Launchpad,
 }
@@ -82,14 +83,14 @@ impl DockEntry {
     pub fn matches_window_app_id(&self, window_app_id: &str) -> bool {
         match &self.kind {
             DockEntryKind::App(app) => app.matches_app_id(window_app_id),
-            DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad => false,
+            DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad | DockEntryKind::MountedDrive(_) => false,
         }
     }
 
     pub fn as_app(&self) -> Option<&DesktopApp> {
         match &self.kind {
             DockEntryKind::App(app) => Some(app),
-            DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad => None,
+            DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad | DockEntryKind::MountedDrive(_) => None,
         }
     }
 }
@@ -313,6 +314,21 @@ impl AppCatalog {
             section: DockSection::Utility,
             icon_path,
             kind: DockEntryKind::Trash { full },
+        }
+    }
+
+    /// Crea una entrada de unidad extraíble montada (USB / tarjeta SD).
+    pub fn mounted_drive_entry(&self, drive: &crate::MountedDrive) -> DockEntry {
+        let icon_path = resolve_icon_path(&drive.icon_name, self.icon_theme.as_deref())
+            .or_else(|| resolve_icon_path("drive-removable-media", self.icon_theme.as_deref()))
+            .or_else(|| resolve_icon_path("drive-harddisk-usb", self.icon_theme.as_deref()));
+
+        DockEntry {
+            key: format!("drive:{}", drive.block_path),
+            label: drive.label.clone(),
+            section: DockSection::Utility,
+            icon_path,
+            kind: DockEntryKind::MountedDrive(drive.clone()),
         }
     }
 

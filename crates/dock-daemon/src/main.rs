@@ -1,5 +1,6 @@
 mod badges;
 mod config_watch;
+mod mounts;
 mod trash;
 
 use calloop::channel::{self, Sender};
@@ -109,6 +110,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
+    let mounts_tx = config_tx.clone();
+    mounts::spawn_mounts_watcher(mounts_tx);
     let _config_watcher = config_watch::spawn_config_watcher(config_tx);
     dock_wayland::run_wayland_loop(config, catalog, apps, trash_full, dnd_tx, theme_rx)?;
     Ok(())

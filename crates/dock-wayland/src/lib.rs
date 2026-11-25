@@ -74,6 +74,7 @@ const SCROLL_CYCLE_COOLDOWN_MS: u64 = 180;
 pub enum SystemEvent {
     SetDark(bool),
     TrashChanged(bool),
+    MountedDrivesChanged(Vec<dock_core::MountedDrive>),
     BadgeUpdate { app_id: String, count: u64 },
     ConfigReloaded(DockConfig),
     PinDesktopFiles(Vec<String>),
@@ -115,6 +116,7 @@ struct DockApp {
     recent_apps: Vec<DesktopApp>,
     entries: Vec<DockEntry>,
     trash_full: bool,
+    mounted_drives: Vec<dock_core::MountedDrive>,
     badges: HashMap<String, u64>,
 
     physics: DockPhysics,
@@ -215,7 +217,12 @@ impl DockApp {
             }
         }
 
-        // Zona 3: Utilidades (Papelera)
+        // Zona 3: Utilidades (Unidades montadas y Papelera)
+        if self.config.show_mounted_drives {
+            for drive in &self.mounted_drives {
+                out.push(self.catalog.mounted_drive_entry(drive));
+            }
+        }
         if self.config.show_trash {
             out.push(self.catalog.trash_entry(self.trash_full));
         }
@@ -369,7 +376,7 @@ impl DockApp {
                     .find(|(k, _)| app.matches_app_id(k))
                     .map(|(_, &c)| c)
                     .unwrap_or(0),
-                DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad => 0,
+                DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad | DockEntryKind::MountedDrive(_) => 0,
             })
             .collect();
         let badges_changed = self.physics.set_badge_counts(&badge_counts);
@@ -570,6 +577,32 @@ impl DockApp {
             }
             ContextMenuAction::EmptyTrash => {
                 empty_trash();
+            }
+            ContextMenuAction::OpenDrive(mount_point) => {
+                let _ = std::process::Command::new("xdg-open")
+                    .arg(&mount_point)
+                    .spawn();
+            }
+            ContextMenuAction::EjectDrive {
+                block_path,
+                drive_path,
+            } => {
+                std::thread::spawn(move || {
+                    let rel_block = block_path
+                        .strip_prefix("/org/freedesktop/UDisks2/")
+                        .unwrap_or(&block_path);
+                    let status = std::process::Command::new("udisksctl")
+                        .args(["unmount", "-p", rel_block])
+                        .status();
+                    if status.map(|s| s.success()).unwrap_or(false) && drive_path != "/" {
+                        let rel_drive = drive_path
+                            .strip_prefix("/org/freedesktop/UDisks2/")
+                            .unwrap_or(&drive_path);
+                        let _ = std::process::Command::new("udisksctl")
+                            .args(["power-off", "-p", rel_drive])
+                            .status();
+                    }
+                });
             }
         }
     }
@@ -1146,7 +1179,7 @@ impl PointerHandler for DockApp {
                                 DockEntryKind::App(app) => {
                                     self.window_tracker.open_windows_for_app(app)
                                 }
-                                DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad => Vec::new(),
+                                DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad | DockEntryKind::MountedDrive(_) => Vec::new(),
                             };
                             let items = build_menu_items_localized(entry, is_running, &open_windows, self.config.language);
                             if self.physics.open_menu(idx, items) {
@@ -1259,6 +1292,11 @@ impl PointerHandler for DockApp {
                                 DockEntryKind::Trash { .. } => {
                                         open_trash();
                                     }
+                                DockEntryKind::MountedDrive(drive) => {
+                                        let _ = std::process::Command::new("xdg-open")
+                                            .arg(&drive.mount_point)
+                                            .spawn();
+                                    }
                                 }
                             }
                         }
@@ -1282,6 +1320,11 @@ impl PointerHandler for DockApp {
                                 DockEntryKind::Launchpad => dock_core::desktop::open_launchpad(),
                                 DockEntryKind::Trash { .. } => {
                                     open_trash();
+                                }
+                                DockEntryKind::MountedDrive(drive) => {
+                                    let _ = std::process::Command::new("xdg-open")
+                                        .arg(&drive.mount_point)
+                                        .spawn();
                                 }
                             }
                         }
@@ -1677,6 +1720,7 @@ impl DataDeviceHandler for DockApp {
                         match kind {
                             DockEntryKind::App(app) => app.launch_with_files(&paths),
                             DockEntryKind::Trash { .. } => move_files_to_trash(&paths),
+                            DockEntryKind::MountedDrive(_) => {},
                             DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad => {},
                         }
                     }
@@ -1872,6 +1916,7 @@ pub fn run_wayland_loop(
         recent_apps: Vec::new(),
         entries: initial_entries,
         trash_full,
+        mounted_drives: Vec::new(),
         badges: HashMap::new(),
         physics,
         logical_width: canvas_w,
@@ -1910,6 +1955,13 @@ pub fn run_wayland_loop(
                         if state.trash_full != full {
                             tracing::info!(full, "Estado de la Papelera actualizado");
                             state.trash_full = full;
+                            state.sync_dock_state();
+                        }
+                    }
+                    SystemEvent::MountedDrivesChanged(drives) => {
+                        if state.mounted_drives != drives {
+                            tracing::info!(count = drives.len(), "Unidades montadas actualizadas");
+                            state.mounted_drives = drives;
                             state.sync_dock_state();
                         }
                     }

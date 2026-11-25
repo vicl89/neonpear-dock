@@ -44,6 +44,8 @@ pub enum ContextMenuAction {
     ForceQuitApp(DesktopApp),
     OpenTrash,
     EmptyTrash,
+    OpenDrive(String),
+    EjectDrive { block_path: String, drive_path: String },
     ToggleAutoHide,
     ToggleMagnification,
     ToggleRecentApps,
@@ -250,6 +252,25 @@ pub fn build_menu_items_localized(
                 destructive: true,
                 separator_before: true,
                 action: ContextMenuAction::EmptyTrash,
+            });
+        }
+        DockEntryKind::MountedDrive(drive) => {
+            items.push(ContextMenuItem {
+                label: t.open_drive.to_string(),
+                enabled: true,
+                destructive: false,
+                separator_before: false,
+                action: ContextMenuAction::OpenDrive(drive.mount_point.clone()),
+            });
+            items.push(ContextMenuItem {
+                label: t.eject_drive.to_string(),
+                enabled: true,
+                destructive: true,
+                separator_before: true,
+                action: ContextMenuAction::EjectDrive {
+                    block_path: drive.block_path.clone(),
+                    drive_path: drive.drive_path.clone(),
+                },
             });
         }
     }

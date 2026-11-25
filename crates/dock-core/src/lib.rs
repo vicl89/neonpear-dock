@@ -78,6 +78,7 @@ pub struct DockConfig {
     pub max_recent_apps: usize,
     pub show_launchpad: bool,
     pub show_trash: bool,
+    pub show_mounted_drives: bool,
     pub icon_spacing: f32,
     pub pill_padding_x: f32,
     pub pill_padding_y: f32,
@@ -115,6 +116,7 @@ impl Default for DockConfig {
             max_recent_apps: 3,
             show_launchpad: false,
             show_trash: true,
+            show_mounted_drives: true,
             icon_spacing: 8.0,
             pill_padding_x: 12.0,
             pill_padding_y: 10.0,
@@ -239,4 +241,19 @@ impl ThemeTransition {
         self.current += diff * factor;
         self.is_animating()
     }
+}
+
+/// Unidad extraíble (USB / tarjeta SD / disco externo) actualmente montada.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MountedDrive {
+    /// Ruta del objeto D-Bus del bloque (ej. `/org/freedesktop/UDisks2/block_devices/sda1`).
+    pub block_path: String,
+    /// Ruta del objeto D-Bus del disco padre (para expulsión/apagado seguro).
+    pub drive_path: String,
+    /// Nombre visible en el tooltip (etiqueta de volumen o modelo del dispositivo).
+    pub label: String,
+    /// Punto de montaje en el sistema de archivos (ej. `/run/media/fernando/MI_USB`).
+    pub mount_point: String,
+    /// Nombre del ícono freedesktop a renderizar.
+    pub icon_name: String,
 }
