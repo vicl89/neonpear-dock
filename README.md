@@ -77,3 +77,18 @@ Desarrollado por **FVidriales** (`fernando.vidriales.89@gmail.com`).
 
 Si el proyecto te resulta útil, puedes apoyar su desarrollo aquí:
 <a href="https://paypal.me/fvidriales"><img src="https://img.shields.io/badge/Donar-PayPal-00457C?style=flat-square&logo=paypal&logoColor=white" alt="Donar con PayPal"></a>
+
+## Instalación en Fedora (COPR)
+
+[![Copr build status](https://copr.fedorainfracloud.org/coprs/vicl89/neonpear-dock/package/neonpear-dock/status_image/last_build.png)](https://copr.fedorainfracloud.org/coprs/vicl89/neonpear-dock/package/neonpear-dock/)
+
+```bash
+sudo dnf copr enable vicl89/neonpear-dock
+sudo dnf install neonpear-dock
+```
+
+Para actualizar cuando salgan nuevas versiones:
+
+```bash
+sudo dnf upgrade neonpear-dock
+```
