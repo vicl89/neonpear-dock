@@ -34,6 +34,7 @@ pub enum DockEntryKind {
     App(DesktopApp),
     Trash { full: bool },
     MountedDrive(crate::MountedDrive),
+    Folder { path: String },
     Spacer { id: String },
     Launchpad,
 }
@@ -83,14 +84,14 @@ impl DockEntry {
     pub fn matches_window_app_id(&self, window_app_id: &str) -> bool {
         match &self.kind {
             DockEntryKind::App(app) => app.matches_app_id(window_app_id),
-            DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad | DockEntryKind::MountedDrive(_) => false,
+            DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad | DockEntryKind::MountedDrive(_) | DockEntryKind::Folder { .. } => false,
         }
     }
 
     pub fn as_app(&self) -> Option<&DesktopApp> {
         match &self.kind {
             DockEntryKind::App(app) => Some(app),
-            DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad | DockEntryKind::MountedDrive(_) => None,
+            DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad | DockEntryKind::MountedDrive(_) | DockEntryKind::Folder { .. } => None,
         }
     }
 }
@@ -329,6 +330,45 @@ impl AppCatalog {
             section: DockSection::Utility,
             icon_path,
             kind: DockEntryKind::MountedDrive(drive.clone()),
+        }
+    }
+
+    /// Crea una entrada de carpeta desplegable (Stack).
+    pub fn folder_entry(&self, folder_path: &str) -> DockEntry {
+        let p = std::path::Path::new(folder_path);
+        let label = p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(folder_path)
+            .to_string();
+
+        let lower = label.to_lowercase();
+        let preferred_icon = if lower.contains("descarga") || lower.contains("download") {
+            "folder-download"
+        } else if lower.contains("documento") || lower.contains("document") {
+            "folder-documents"
+        } else if lower.contains("imágen") || lower.contains("imagen") || lower.contains("picture") {
+            "folder-pictures"
+        } else if lower.contains("música") || lower.contains("musica") || lower.contains("music") {
+            "folder-music"
+        } else if lower.contains("vídeo") || lower.contains("video") {
+            "folder-videos"
+        } else {
+            "folder"
+        };
+
+        let icon_path = resolve_icon_path(preferred_icon, self.icon_theme.as_deref())
+            .or_else(|| resolve_icon_path("folder", self.icon_theme.as_deref()));
+
+        DockEntry {
+            key: format!("folder:{}", folder_path),
+            label,
+            section: DockSection::Utility,
+            icon_path,
+            kind: DockEntryKind::Folder {
+                path: folder_path.to_string(),
+            },
         }
     }
 

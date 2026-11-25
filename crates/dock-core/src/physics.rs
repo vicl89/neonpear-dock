@@ -630,12 +630,12 @@ impl DockPhysics {
                 + bottom_gap
                 + 10.0)
                 .ceil() as u32;
-            let base_side_w = (icon_inner_edge + MENU_GAP + 260.0 + 18.0).ceil() as u32;
+            let base_side_w = (icon_inner_edge + MENU_GAP + 380.0 + 18.0).ceil() as u32;
             canvas_w = canvas_w.max(base_side_w);
 
             let max_pill_len = rest_w + extra_per_icon * (n.min(4) as f32);
-            let mut canvas_h = (max_pill_len + 96.0).ceil() as u32;
-            canvas_h = canvas_h.max(360);
+            let fan_v_span = (config.icon_size * 9.5 + 80.0).max(480.0);
+            let mut canvas_h = (max_pill_len + 96.0).max(fan_v_span).ceil() as u32;
 
             if let Some(menu) = &self.menu {
                 let (menu_w, _, menu_total_h) = measure_menu(&menu.items);
@@ -662,7 +662,8 @@ impl DockPhysics {
         // la superficie Wayland / swapchain de wgpu al abrir o cerrar (elimina flickering).
         let icon_top_from_bottom = max_icon + config.pill_padding_y + 2.0 + bottom_gap;
         side_pad = side_pad.max(260.0);
-        let base_menu_h = (icon_top_from_bottom + MENU_GAP + 320.0 + 18.0).ceil() as u32;
+        let fan_headroom = (config.icon_size * 9.5 + 80.0).max(480.0);
+        let base_menu_h = (icon_top_from_bottom + MENU_GAP + fan_headroom + 18.0).ceil() as u32;
         canvas_h = canvas_h.max(base_menu_h);
 
         if let Some(menu) = &self.menu {

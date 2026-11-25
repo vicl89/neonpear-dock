@@ -46,6 +46,8 @@ pub enum ContextMenuAction {
     EmptyTrash,
     OpenDrive(String),
     EjectDrive { block_path: String, drive_path: String },
+    OpenPath(String),
+    UnpinFolder(String),
     ToggleAutoHide,
     ToggleMagnification,
     ToggleRecentApps,
@@ -273,6 +275,22 @@ pub fn build_menu_items_localized(
                 },
             });
         }
+        DockEntryKind::Folder { path } => {
+            items.push(ContextMenuItem {
+                label: t.open_drive.to_string(),
+                enabled: true,
+                destructive: false,
+                separator_before: false,
+                action: ContextMenuAction::OpenPath(path.clone()),
+            });
+            items.push(ContextMenuItem {
+                label: t.unpin_folder.to_string(),
+                enabled: true,
+                destructive: true,
+                separator_before: true,
+                action: ContextMenuAction::UnpinFolder(path.clone()),
+            });
+        }
     }
 
     items.push(ContextMenuItem {
@@ -416,4 +434,69 @@ pub fn build_dock_quick_menu(config: &crate::DockConfig) -> Vec<ContextMenuItem>
             action: ContextMenuAction::QuitDock,
         },
     ]
+}
+
+
+/// Construye el menú desplegable (Stack) con los 12 archivos/carpetas más recientes.
+pub fn build_folder_stack_menu(
+    folder_path: &str,
+    language: crate::Language,
+) -> Vec<ContextMenuItem> {
+    let t = crate::i18n::menu_strings(language);
+    let mut items = Vec::new();
+    let mut entries: Vec<(std::time::SystemTime, String, String, bool)> = Vec::new();
+
+    if let Ok(rd) = std::fs::read_dir(folder_path) {
+        for entry in rd.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            let meta = entry.metadata().ok();
+            let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+            let modified = meta
+                .and_then(|m| m.modified().ok())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            let full_path = entry.path().to_string_lossy().to_string();
+            entries.push((modified, name, full_path, is_dir));
+        }
+    }
+
+    entries.sort_by(|a, b| b.0.cmp(&a.0));
+    entries.truncate(12);
+
+    if entries.is_empty() {
+        items.push(ContextMenuItem {
+            label: t.empty_folder.to_string(),
+            enabled: false,
+            destructive: false,
+            separator_before: false,
+            action: ContextMenuAction::OpenPath(folder_path.to_string()),
+        });
+    } else {
+        for (_, name, full_path, is_dir) in entries {
+            let display = if is_dir {
+                format!("{}/", name)
+            } else {
+                name
+            };
+            items.push(ContextMenuItem {
+                label: display,
+                enabled: true,
+                destructive: false,
+                separator_before: false,
+                action: ContextMenuAction::OpenPath(full_path),
+            });
+        }
+    }
+
+    items.push(ContextMenuItem {
+        label: t.open_drive.to_string(),
+        enabled: true,
+        destructive: false,
+        separator_before: true,
+        action: ContextMenuAction::OpenPath(folder_path.to_string()),
+    });
+
+    items
 }

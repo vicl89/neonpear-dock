@@ -75,6 +75,7 @@ pub enum SystemEvent {
     SetDark(bool),
     TrashChanged(bool),
     MountedDrivesChanged(Vec<dock_core::MountedDrive>),
+    PinFolders(Vec<String>),
     BadgeUpdate { app_id: String, count: u64 },
     ConfigReloaded(DockConfig),
     PinDesktopFiles(Vec<String>),
@@ -88,6 +89,47 @@ struct DragState {
     reordered: bool,
 }
 
+struct FanStackState {
+    entry_idx: usize,
+    data: dock_core::stack::FanStackData,
+    layout: dock_core::stack::FanLayout,
+    hovered_slot: Option<usize>,
+    hover_more: bool,
+    progress: f32,
+    closing: bool,
+    dirty: bool,
+}
+
+impl FanStackState {
+    fn hit_test(&self, x: f32, y: f32) -> (Option<usize>, bool) {
+        for (i, slot) in self.layout.slots.iter().enumerate() {
+            let in_icon = x >= slot.icon_x
+                && x <= slot.icon_x + slot.icon_size
+                && y >= slot.icon_y
+                && y <= slot.icon_y + slot.icon_size;
+            let in_label = x >= slot.label_x
+                && x <= slot.label_x + slot.label_w
+                && y >= slot.label_y
+                && y <= slot.label_y + slot.label_h;
+            if in_icon || in_label {
+                return (Some(i), false);
+            }
+        }
+        if let Some([cx, cy]) = self.layout.more_button_center {
+            let r = self.layout.more_button_radius + 4.0;
+            if (x - cx).hypot(y - cy) <= r {
+                return (None, true);
+            }
+        }
+        if let Some([lx, ly, lw, lh]) = self.layout.more_label_rect {
+            if x >= lx && x <= lx + lw && y >= ly && y <= ly + lh {
+                return (None, true);
+            }
+        }
+        (None, false)
+    }
+}
+
 struct DockApp {
     // `renderer` debe declararse primero para liberarse antes que los recursos de Wayland.
     renderer: Option<DockRenderer>,
@@ -97,6 +139,7 @@ struct DockApp {
     keyboard: Option<wl_keyboard::WlKeyboard>,
     modifiers: Modifiers,
     drag_state: Option<DragState>,
+    fan_stack: Option<FanStackState>,
     data_device_manager: Option<DataDeviceManagerState>,
     data_device: Option<DataDevice>,
     event_tx: calloop::channel::Sender<SystemEvent>,
@@ -221,6 +264,11 @@ impl DockApp {
         if self.config.show_mounted_drives {
             for drive in &self.mounted_drives {
                 out.push(self.catalog.mounted_drive_entry(drive));
+            }
+        }
+        for folder in &self.config.pinned_folders {
+            if std::path::Path::new(folder).exists() {
+                out.push(self.catalog.folder_entry(folder));
             }
         }
         if self.config.show_trash {
@@ -376,7 +424,7 @@ impl DockApp {
                     .find(|(k, _)| app.matches_app_id(k))
                     .map(|(_, &c)| c)
                     .unwrap_or(0),
-                DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad | DockEntryKind::MountedDrive(_) => 0,
+                DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad | DockEntryKind::MountedDrive(_) | DockEntryKind::Folder { .. } => 0,
             })
             .collect();
         let badges_changed = self.physics.set_badge_counts(&badge_counts);
@@ -582,6 +630,19 @@ impl DockApp {
                 let _ = std::process::Command::new("xdg-open")
                     .arg(&mount_point)
                     .spawn();
+            }
+            ContextMenuAction::OpenPath(target_path) => {
+                let _ = std::process::Command::new("xdg-open")
+                    .arg(&target_path)
+                    .spawn();
+            }
+            ContextMenuAction::UnpinFolder(folder_path) => {
+                let before = self.config.pinned_folders.len();
+                self.config.pinned_folders.retain(|p| p != &folder_path);
+                if self.config.pinned_folders.len() != before {
+                    let _ = self.config.save();
+                    self.sync_dock_state();
+                }
             }
             ContextMenuAction::EjectDrive {
                 block_path,
@@ -797,6 +858,11 @@ impl DockApp {
             }
         }
 
+        if self.fan_stack.is_some() {
+            rects.clear();
+            rects.push((0, 0, cw as i32, ch as i32));
+        }
+
         if rects.is_empty() || self.last_input_rects == rects {
             return;
         }
@@ -827,7 +893,30 @@ impl DockApp {
         self.last_tick = now;
 
         let theme_anim = self.theme.step(dt);
-        let phys_anim = self.physics.step(dt, &self.config);
+        let mut fan_anim = false;
+        let mut fan_close_done = false;
+        if let Some(ref mut fs) = self.fan_stack {
+            let speed = 5.5;
+            if fs.closing {
+                fs.progress = (fs.progress - dt * speed).max(0.0);
+                fs.dirty = true;
+                if fs.progress <= 0.001 {
+                    fan_close_done = true;
+                } else {
+                    fan_anim = true;
+                }
+            } else if fs.progress < 1.0 {
+                fs.progress = (fs.progress + dt * speed).min(1.0);
+                fs.dirty = true;
+                if fs.progress < 1.0 {
+                    fan_anim = true;
+                }
+            }
+        }
+        if fan_close_done {
+            self.fan_stack = None;
+        }
+        let phys_anim = self.physics.step(dt, &self.config) || fan_anim;
 
         if self.sync_canvas_size() {
             return;
@@ -896,6 +985,44 @@ impl DockApp {
                 border_strength: self.config.border_intensity,
                 custom_tint,
             };
+            if let Some(ref mut fs) = self.fan_stack {
+                let cw = self.requested_width.max(1) as f32;
+                let ch = self.requested_height.max(1) as f32;
+                let (ax, ay) = if let Some(slot) = layout.icons.get(fs.entry_idx) {
+                    match self.config.position {
+                        dock_core::DockPosition::Bottom => (slot.x, layout.pill.y - 10.0),
+                        dock_core::DockPosition::Top => (slot.x, layout.pill.y + layout.pill.height + 10.0),
+                        dock_core::DockPosition::Left => (layout.pill.x + layout.pill.width + 10.0, slot.y),
+                        dock_core::DockPosition::Right => (layout.pill.x - 10.0, slot.y),
+                    }
+                } else {
+                    (cw * 0.5, (layout.pill.y - 10.0).max(120.0))
+                };
+
+                fs.layout = dock_core::stack::compute_fan_layout(
+                    &fs.data,
+                    ax,
+                    ay,
+                    cw,
+                    ch,
+                    self.config.icon_size,
+                    self.config.position,
+                    fs.progress,
+                );
+                if fs.dirty {
+                    renderer.set_fan_stack(
+                        &fs.data,
+                        &fs.layout,
+                        fs.hovered_slot,
+                        fs.hover_more,
+                        effective_dark >= 0.5,
+                        fs.progress.clamp(0.0, 1.0),
+                    );
+                    fs.dirty = false;
+                }
+            } else {
+                renderer.clear_fan_stack();
+            }
             renderer.render(
                 &layout,
                 self.config.corner_radius,
@@ -1112,6 +1239,14 @@ impl PointerHandler for DockApp {
                     }
                     let pos = (event.position.0 as f32, event.position.1 as f32);
                     self.physics.set_cursor(Some(pos));
+                    if let Some(ref mut fs) = self.fan_stack {
+                        let (slot_hit, more_hit) = fs.hit_test(pos.0, pos.1);
+                        if slot_hit != fs.hovered_slot || more_hit != fs.hover_more {
+                            fs.hovered_slot = slot_hit;
+                            fs.hover_more = more_hit;
+                            fs.dirty = true;
+                        }
+                    }
 
                     let mut reorder_pair: Option<(usize, usize)> = None;
                     let mut cancel_press = false;
@@ -1159,6 +1294,10 @@ impl PointerHandler for DockApp {
                     }
                     self.physics.set_cursor(None);
                     self.menu_pressed_item = None;
+                    if let Some(ref mut fs) = self.fan_stack {
+                        fs.closing = true;
+                        fs.dirty = true;
+                    }
                     if self.physics.is_menu_open() {
                         self.menu_leave_deadline =
                             Some(Instant::now() + Duration::from_millis(MENU_LEAVE_GRACE_MS));
@@ -1179,7 +1318,7 @@ impl PointerHandler for DockApp {
                                 DockEntryKind::App(app) => {
                                     self.window_tracker.open_windows_for_app(app)
                                 }
-                                DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad | DockEntryKind::MountedDrive(_) => Vec::new(),
+                                DockEntryKind::Trash { .. } | DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad | DockEntryKind::MountedDrive(_) | DockEntryKind::Folder { .. } => Vec::new(),
                             };
                             let items = build_menu_items_localized(entry, is_running, &open_windows, self.config.language);
                             if self.physics.open_menu(idx, items) {
@@ -1205,6 +1344,25 @@ impl PointerHandler for DockApp {
                     }
                 }
                 PointerEventKind::Press { button, .. } if button == BTN_LEFT => {
+                    if let Some(ref mut fs) = self.fan_stack {
+                        let pos = (event.position.0 as f32, event.position.1 as f32);
+                        let (slot_hit, more_hit) = fs.hit_test(pos.0, pos.1);
+                        if let Some(slot_idx) = slot_hit {
+                            if let Some(item) = fs.data.items.get(slot_idx) {
+                                let _ = std::process::Command::new("xdg-open")
+                                    .arg(&item.path)
+                                    .spawn();
+                            }
+                        } else if more_hit {
+                            let _ = std::process::Command::new("xdg-open")
+                                .arg(&fs.data.folder_path)
+                                .spawn();
+                        }
+                        fs.closing = true;
+                        fs.dirty = true;
+                        needs_redraw = true;
+                        continue;
+                    }
                     if self.physics.is_menu_open() {
                         if let Some(item_idx) = self.physics.menu_hit_test(&self.config) {
                             self.menu_pressed_item = Some(item_idx);
@@ -1297,6 +1455,32 @@ impl PointerHandler for DockApp {
                                             .arg(&drive.mount_point)
                                             .spawn();
                                     }
+                                DockEntryKind::Folder { path } => {
+                                        let data = dock_core::stack::build_fan_stack_data(path, "");
+                                        let cw = self.requested_width.max(1) as f32;
+                                        let ch = self.requested_height.max(1) as f32;
+                                        let layout = dock_core::stack::compute_fan_layout(
+                                            &data,
+                                            event.position.0 as f32,
+                                            event.position.1 as f32,
+                                            cw,
+                                            ch,
+                                            self.config.icon_size,
+                                            self.config.position,
+                                            0.05,
+                                        );
+                                        self.fan_stack = Some(FanStackState {
+                                            entry_idx: idx,
+                                            data,
+                                            layout,
+                                            hovered_slot: None,
+                                            hover_more: false,
+                                            progress: 0.05,
+                                            closing: false,
+                                            dirty: true,
+                                        });
+                                        self.hide_deadline = None;
+                                    }
                                 }
                             }
                         }
@@ -1324,6 +1508,11 @@ impl PointerHandler for DockApp {
                                 DockEntryKind::MountedDrive(drive) => {
                                     let _ = std::process::Command::new("xdg-open")
                                         .arg(&drive.mount_point)
+                                        .spawn();
+                                }
+                                DockEntryKind::Folder { path } => {
+                                    let _ = std::process::Command::new("xdg-open")
+                                        .arg(path)
                                         .spawn();
                                 }
                             }
@@ -1716,12 +1905,33 @@ impl DataDeviceHandler for DockApp {
 
                     if !desktop_items.is_empty() {
                         let _ = tx.send(SystemEvent::PinDesktopFiles(desktop_items));
-                    } else if let Some((_, kind)) = target {
-                        match kind {
-                            DockEntryKind::App(app) => app.launch_with_files(&paths),
-                            DockEntryKind::Trash { .. } => move_files_to_trash(&paths),
-                            DockEntryKind::MountedDrive(_) => {},
-                            DockEntryKind::Spacer { .. } | DockEntryKind::Launchpad => {},
+                    } else {
+                        let mut handled = false;
+                        if let Some((_, kind)) = target {
+                            match kind {
+                                DockEntryKind::App(app) => {
+                                    app.launch_with_files(&paths);
+                                    handled = true;
+                                }
+                                DockEntryKind::Trash { .. } => {
+                                    move_files_to_trash(&paths);
+                                    handled = true;
+                                }
+                                DockEntryKind::MountedDrive(_)
+                                | DockEntryKind::Folder { .. }
+                                | DockEntryKind::Spacer { .. }
+                                | DockEntryKind::Launchpad => {}
+                            }
+                        }
+                        if !handled {
+                            let folder_items: Vec<String> = paths
+                                .iter()
+                                .filter(|p| std::path::Path::new(p).is_dir())
+                                .cloned()
+                                .collect();
+                            if !folder_items.is_empty() {
+                                let _ = tx.send(SystemEvent::PinFolders(folder_items));
+                            }
                         }
                     }
                 }
@@ -1899,6 +2109,7 @@ pub fn run_wayland_loop(
         keyboard: None,
         modifiers: Modifiers::default(),
         drag_state: None,
+        fan_stack: None,
         data_device_manager: DataDeviceManagerState::bind(&globals, &qh).ok(),
         data_device: None,
         event_tx,
@@ -1962,6 +2173,20 @@ pub fn run_wayland_loop(
                         if state.mounted_drives != drives {
                             tracing::info!(count = drives.len(), "Unidades montadas actualizadas");
                             state.mounted_drives = drives;
+                            state.sync_dock_state();
+                        }
+                    }
+                    SystemEvent::PinFolders(folders) => {
+                        let mut changed = false;
+                        for folder in folders {
+                            if !state.config.pinned_folders.contains(&folder) {
+                                tracing::info!(%folder, "Fijando carpeta (Stack) en el dock");
+                                state.config.pinned_folders.push(folder);
+                                changed = true;
+                            }
+                        }
+                        if changed {
+                            let _ = state.config.save();
                             state.sync_dock_state();
                         }
                     }

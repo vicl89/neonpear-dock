@@ -35,12 +35,11 @@ impl SettingsApp {
         if self.dirty {
             // Si no estamos editando la pestaña de Apps fijadas, preservar los cambios
             // hechos desde el dock (Drag & Drop o menú contextual)
-            if self.tab != Tab::Pinned {
-                let on_disk = DockConfig::load_or_create();
-                if !on_disk.pinned_apps.is_empty() {
-                    self.config.pinned_apps = on_disk.pinned_apps;
-                }
+            let on_disk = DockConfig::load_or_create();
+            if self.tab != Tab::Pinned && !on_disk.pinned_apps.is_empty() {
+                self.config.pinned_apps = on_disk.pinned_apps;
             }
+            self.config.pinned_folders = on_disk.pinned_folders;
             self.config.auto_hide = self.config.hide_mode == HideMode::AutoHide;
             self.config.save();
             sync_autostart_file(self.autostart);

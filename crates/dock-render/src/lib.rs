@@ -4,6 +4,7 @@ mod badges;
 mod dots;
 mod menu;
 mod tooltip;
+pub mod stack;
 
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -85,6 +86,8 @@ pub struct DockRenderer {
     swash_cache: cosmic_text::SwashCache,
     tooltip_pipeline: tooltip::TooltipPipeline,
     menu_pipeline: menu::MenuPipeline,
+    stack_pipeline: stack::FanStackPipeline,
+    fan_stack_opacity: f32,
     badge_pipeline: badges::BadgePipeline,
     texture_cache: HashMap<String, CachedIconTexture>,
     cached_icon_px: u32,
@@ -374,6 +377,7 @@ impl DockRenderer {
         let divider_pipeline = dividers::DividerPipeline::new(&device, format);
         let tooltip_pipeline = tooltip::TooltipPipeline::new(&device, format);
         let menu_pipeline = menu::MenuPipeline::new(&device, format);
+        let stack_pipeline = stack::FanStackPipeline::new(&device, format);
         let badge_pipeline = badges::BadgePipeline::new(&device, format);
 
         Ok(Self {
@@ -435,6 +439,8 @@ impl DockRenderer {
             swash_cache: cosmic_text::SwashCache::new(),
             tooltip_pipeline,
             menu_pipeline,
+            stack_pipeline,
+            fan_stack_opacity: 0.0,
             badge_pipeline,
             texture_cache: HashMap::new(),
             cached_icon_px: 0,
@@ -574,6 +580,38 @@ impl DockRenderer {
         self.surface.configure(&self.device, &self.config);
     }
 
+    /// Actualiza la textura del Fan Stack en abanico y lo marca visible.
+    pub fn set_fan_stack(
+        &mut self,
+        data: &dock_core::stack::FanStackData,
+        layout: &dock_core::stack::FanLayout,
+        hovered_slot: Option<usize>,
+        hover_more: bool,
+        is_dark: bool,
+        opacity: f32,
+    ) {
+        self.stack_pipeline.update_fan(
+            &self.device,
+            &self.queue,
+            data,
+            layout,
+            self.config.width,
+            self.config.height,
+            self.scale_factor,
+            hovered_slot,
+            hover_more,
+            is_dark,
+            opacity,
+        );
+        self.fan_stack_opacity = opacity;
+    }
+
+    /// Oculta el Fan Stack actual.
+    pub fn clear_fan_stack(&mut self) {
+        self.fan_stack_opacity = 0.0;
+        self.stack_pipeline.clear();
+    }
+
     pub fn render(&mut self,
         layout: &FrameLayout,
         logical_corner_radius: f32,
@@ -695,6 +733,9 @@ impl DockRenderer {
 
             // 5. Menú contextual
             self.menu_pipeline.draw(&mut pass, menu_visible);
+
+            // 6. Fan Stack (abanico de carpeta)
+            self.stack_pipeline.draw(&mut pass);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));

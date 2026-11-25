@@ -79,6 +79,8 @@ pub struct DockConfig {
     pub show_launchpad: bool,
     pub show_trash: bool,
     pub show_mounted_drives: bool,
+    #[serde(default)]
+    pub pinned_folders: Vec<String>,
     pub icon_spacing: f32,
     pub pill_padding_x: f32,
     pub pill_padding_y: f32,
@@ -117,6 +119,7 @@ impl Default for DockConfig {
             show_launchpad: false,
             show_trash: true,
             show_mounted_drives: true,
+            pinned_folders: Vec::new(),
             icon_spacing: 8.0,
             pill_padding_x: 12.0,
             pill_padding_y: 10.0,
@@ -257,3 +260,5 @@ pub struct MountedDrive {
     /// Nombre del ícono freedesktop a renderizar.
     pub icon_name: String,
 }
+
+pub mod stack;
