@@ -21,7 +21,7 @@
 
 ### Apariencia y renderizado
 - **Renderizado acelerado por GPU (`wgpu`):** animaciones fluidas de magnificación, rebote (*bounce*) y transiciones de opacidad.
-- **Efecto cristal nativo:** integración con el desenfoque (*blur*) de KWin en Wayland.
+- **Efecto cristal nativo y tinte personalizado:** integración con el desenfoque (*blur*) de KWin / `ext-background-effect` en Wayland, modo Claro/Oscuro automático y soporte de tinte personalizado tanto en el dock como en los *popovers* de carpetas.
 - **Ícono oficial y lanzadores:** incluye `NeonPearDock.svg`, entrada de menú para el dock y lanzador independiente para la ventana de configuración (`neonpear-dock-settings`).
 
 ### Posicionamiento y adaptabilidad
@@ -34,6 +34,11 @@
 - **Ocultado inteligente (*Auto-hide* / *Dodge windows*):** se oculta automáticamente ante ventanas y reacciona al borde del monitor.
 - **Gestión de aplicaciones:** indicadores de aplicaciones activas, contadores de notificaciones (*badges*), estado de atención y animación de rebote al lanzar.
 - **Espaciadores personalizables** y botón opcional tipo **Launchpad**.
+- **Carpetas en pila (*Folder Stacks*):** vistas en **Abanico (Fan)**, **Cuadrícula (Grid)** y **Lista (List)** aceleradas por GPU en las 4 posiciones, con desenfoque nativo, tinte personalizado y liberación automática de memoria en GPU al cerrar.
+- **Unidades USB dinámicas (`UDisks2`):** detección y montaje automático de discos externos y memorias USB directamente en el dock.
+- **Drag & drop de archivos:** arrastra archivos sobre íconos del dock para abrirlos directamente con la aplicación correspondiente.
+- **Internacionalización (9 idiomas):** detección automática de idioma con soporte de respaldo tipográfico para CJK y cirílico.
+- **Estabilidad e integración:** bloqueo de instancia única, acción *Salir* en el menú contextual, metadatos AppStream para KDE Discover y compilación nativa en Fedora COPR.
 - **Configuración en vivo (`neonpear-dock-settings`):** cambios aplicados al instante sin reiniciar el dock.
 
 ---
@@ -43,7 +48,10 @@
 - **Arquitectura inicial (*Glassdock*):** creación del workspace en Rust (`dock-core`, `dock-render`, `dock-wayland`, `dock-daemon`, `dock-settings`) con protocolo `wlr-layer-shell`, renderizado `wgpu`, efecto blur de KWin, magnificación, espaciadores, modo de aplicaciones activas y botón Launchpad.
 - **Estabilidad y UX:** correcciones de detección de cursor (*hit-testing*), regiones de entrada en Wayland, animaciones de rebote/atención y sincronización de monitores.
 - **Transición a NeonPear Dock (`v0.3.0-beta.3` – `beta.4`):** renombrado completo del proyecto, reemplazo automático del paquete `glassdock` vía RPM (`Obsoletes: glassdock <= 0.3.0`), integración del ícono oficial `NeonPearDock.svg` y corrección del `app_id` de Wayland para mostrar correctamente el ícono en la ventana de configuración.
-- **Soporte vertical y escalado (`v0.3.0-beta.5`):** implementación de posiciones Izquierda/Derecha, tooltips y menús contextuales en las 4 direcciones con puente de entrada continuo, y auto-escalado proporcional por monitor.
+- **Soporte vertical y escalado (`v0.3.0-beta.5` – `v0.3.0`):** implementación de posiciones Izquierda/Derecha, tooltips y menús contextuales en las 4 direcciones con puente de entrada continuo, auto-escalado proporcional por monitor, pestaña *Acerca de* y suite de pruebas unitarias en `dock-core`.
+- **Internacionalización y COPR (`v0.4.0`):** traducción completa a 9 idiomas con detección automática, bloqueo de instancia única, acción *Salir* en el menú contextual, CI en GitHub Actions y empaquetado SRPM con dependencias *vendored* para Fedora COPR.
+- **Fan Stack y UDisks2 (`v0.5.0`):** implementación del *Fan Stack* estilo macOS acelerado por GPU en las 4 posiciones, soporte dinámico de unidades USB vía `UDisks2`, optimización del monitor de papelera (`inotify`) y metadatos AppStream para KDE Discover.
+- **Vistas Cuadrícula y Lista (`v0.5.5`):** incorporación de los modos **Cuadrícula (Grid)** y **Lista (List)** para carpetas con desenfoque Wayland y tinte personalizado, corrección de alineación y regiones de entrada en docks verticales, cierre automático al abrir el menú contextual y limpieza automática de texturas en GPU.
 
 Para el detalle cronológico completo, consulta [CHANGELOG.md](CHANGELOG.md).
 

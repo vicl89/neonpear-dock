@@ -2,6 +2,31 @@
 
 Historial de cambios y evolución de **NeonPear Dock** (anteriormente *Glassdock*).
 
+## [0.5.5] - 2026-11-25
+### Añadido
+- Modos de vista **Cuadrícula (Grid)** y **Lista (List)** para carpetas fijadas en el dock, además de Abanico y Automático.
+- Desenfoque nativo de Wayland (KWin / `ext-background-effect`) y adopción del tinte personalizado (`GlassTheme::Custom`) en los *popovers* de carpetas.
+
+### Corregido y mejorado
+- Alineación del dock vertical (Izquierda/Derecha) y cobertura completa de `input_region` con puente continuo hacia la píldora para evitar cierres prematuros.
+- Cierre automático del *popover* de carpeta al hacer clic derecho para abrir el menú contextual.
+- Liberación automática de texturas y buffers en GPU al cerrar los *stacks*.
+
+## [0.5.0] - 2026-11-25
+### Añadido
+- **Fan Stack** estilo macOS acelerado por GPU en las 4 posiciones del dock, traducido a los 9 idiomas soportados.
+- Soporte dinámico de unidades USB montadas mediante `UDisks2`.
+- Metadatos AppStream (`io.github.vicl89.neonpear-dock.metainfo.xml`) para integración con KDE Discover y flujo de GitHub Actions para adjuntar paquetes RPM a los releases.
+
+### Mejorado
+- Optimización del monitor de papelera ignorando eventos `inotify` no mutantes.
+
+## [0.4.0] - 2026-11-24
+### Añadido
+- Soporte de internacionalización en 9 idiomas con detección automática y respaldo tipográfico CJK/cirílico.
+- Bloqueo de instancia única y acción *Salir de NeonPear Dock* en el menú contextual.
+- Empaquetado SRPM con crates *vendored* para Fedora COPR y pipeline CI en GitHub Actions (`cargo test` y `clippy`).
+
 ## [0.5.0] - 2026-11-25
 ### Added
 - **Fan Stack estilo macOS acelerado por GPU (`wgpu`)**: carpetas fijadas en el dock que se despliegan en abanico a 60 fps con animación *ease-out*, cápsulas de texto rotadas, tamaño dinámico ligado a `icon_size` y soporte completo en las 4 posiciones (Abajo, Arriba, Izquierda y Derecha).
