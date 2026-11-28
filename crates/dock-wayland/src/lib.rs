@@ -8,6 +8,9 @@ use wayland_client::protocol::{
     wl_data_device, wl_data_device_manager::DndAction, wl_data_source,
 };
 mod blur;
+mod drag_ghost;
+
+use smithay_client_toolkit::{delegate_shm, shm::{Shm, ShmHandler}};
 mod windows;
 
 use std::collections::{HashMap, HashSet};
@@ -82,8 +85,14 @@ pub enum SystemEvent {
     SystemFontChanged,
 }
 
+enum DragTarget {
+    PinnedApp(usize),
+    PinnedFolder(String),
+}
+
 struct DragState {
-    pinned_idx: usize,
+    target: DragTarget,
+    icon_path: Option<std::path::PathBuf>,
     start_pos: (f32, f32),
     active: bool,
     outside: bool,
@@ -178,6 +187,9 @@ struct DockApp {
     keyboard: Option<wl_keyboard::WlKeyboard>,
     modifiers: Modifiers,
     drag_state: Option<DragState>,
+    drag_ghost: Option<drag_ghost::DragGhost>,
+    layer_shell: LayerShell,
+    shm: Shm,
     fan_stack: Option<FanStackState>,
     data_device_manager: Option<DataDeviceManagerState>,
     data_device: Option<DataDevice>,
@@ -315,6 +327,36 @@ impl DockApp {
         }
 
         out
+    }
+
+    /// Traduce coordenadas locales del dock a coordenadas lógicas sobre el monitor activo.
+    fn dock_to_output_pos(&self, local_x: f32, local_y: f32) -> (f32, f32) {
+        let output = self
+            .active_output
+            .clone()
+            .or_else(|| self.output_state.outputs().next());
+        let (ow, oh) = output
+            .and_then(|o| self.output_state.info(&o))
+            .and_then(|info| {
+                info.logical_size.or_else(|| {
+                    info.modes
+                        .iter()
+                        .find(|m| m.current)
+                        .map(|m| m.dimensions)
+                })
+            })
+            .unwrap_or((self.logical_width as i32, self.logical_height as i32));
+        let ow = ow.max(1) as f32;
+        let oh = oh.max(1) as f32;
+        let lw = self.logical_width.max(1) as f32;
+        let lh = self.logical_height.max(1) as f32;
+        let (ox, oy) = match self.config.position {
+            dock_core::DockPosition::Bottom => ((ow - lw) * 0.5, oh - lh),
+            dock_core::DockPosition::Top => ((ow - lw) * 0.5, 0.0),
+            dock_core::DockPosition::Left => (0.0, (oh - lh) * 0.5),
+            dock_core::DockPosition::Right => (ow - lw, (oh - lh) * 0.5),
+        };
+        (ox + local_x, oy + local_y)
     }
 
     /// Calcula el rectángulo global `(x, y, ancho, alto)` de la píldora en reposo sobre el monitor activo.
@@ -1270,10 +1312,21 @@ impl CompositorHandler for DockApp {
     fn frame(
         &mut self,
         _: &Connection,
-        _: &QueueHandle<Self>,
-        _: &wl_surface::WlSurface,
+        qh: &QueueHandle<Self>,
+        surface: &wl_surface::WlSurface,
         _: u32,
     ) {
+        if self.drag_ghost.as_ref().is_some_and(|g| g.is_surface(surface)) {
+            let keep = self
+                .drag_ghost
+                .as_mut()
+                .map(|g| g.tick_fade(qh))
+                .unwrap_or(false);
+            if !keep {
+                self.drag_ghost = None;
+            }
+            return;
+        }
         self.frame_pending = false;
         if self.dirty || self.animating {
             self.dirty = false;
@@ -1437,7 +1490,6 @@ impl PointerHandler for DockApp {
                     let mut reorder_pair: Option<(usize, usize)> = None;
                     let mut cancel_press = false;
                     if let Some(drag) = self.drag_state.as_mut() {
-                        drag.outside = false;
                         if !drag.active {
                             let dist = (pos.0 - drag.start_pos.0).hypot(pos.1 - drag.start_pos.1);
                             if dist >= 10.0 {
@@ -1445,20 +1497,79 @@ impl PointerHandler for DockApp {
                                 cancel_press = true;
                             }
                         }
-                        if drag.active {
-                            if let Some(target_idx) = self.physics.icon_at_cursor(&self.config) {
-                                if target_idx < self.pinned_apps.len()
-                                    && target_idx != drag.pinned_idx
-                                {
-                                    reorder_pair = Some((drag.pinned_idx, target_idx));
-                                    drag.pinned_idx = target_idx;
-                                    drag.reordered = true;
+                        let perp_dist = match self.config.position {
+                            dock_core::DockPosition::Bottom | dock_core::DockPosition::Top => {
+                                (pos.1 - drag.start_pos.1).abs()
+                            }
+                            dock_core::DockPosition::Left | dock_core::DockPosition::Right => {
+                                (pos.0 - drag.start_pos.0).abs()
+                            }
+                        };
+                        let unpin_threshold = (self.config.icon_size * 1.15).max(68.0);
+                        drag.outside = drag.active && perp_dist >= unpin_threshold;
+
+                        if drag.active && !drag.outside {
+                            if let DragTarget::PinnedApp(ref mut pinned_idx) = drag.target {
+                                if let Some(entry_idx) = self.physics.icon_at_cursor(&self.config) {
+                                    let pinned_offset = usize::from(self.config.show_launchpad);
+                                    if !self.config.active_apps_only
+                                        && entry_idx >= pinned_offset
+                                        && entry_idx < pinned_offset + self.pinned_apps.len()
+                                    {
+                                        let target_idx = entry_idx - pinned_offset;
+                                        if target_idx != *pinned_idx {
+                                            reorder_pair = Some((*pinned_idx, target_idx));
+                                            *pinned_idx = target_idx;
+                                            drag.reordered = true;
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                     if cancel_press {
                         self.physics.set_pressed(false, &self.config);
+                    }
+                    let ghost_outside = self
+                        .drag_state
+                        .as_ref()
+                        .filter(|d| d.active && d.outside)
+                        .map(|d| d.icon_path.clone());
+                    if let Some(icon_path) = ghost_outside {
+                        let (out_x, out_y) = self.dock_to_output_pos(pos.0, pos.1);
+                        if let Some(ref mut ghost) = self.drag_ghost {
+                            if !ghost.is_fading() {
+                                ghost.move_to(out_x, out_y);
+                            } else {
+                                self.drag_ghost = drag_ghost::DragGhost::new(
+                                    &self.compositor_state,
+                                    &self.layer_shell,
+                                    &self.shm,
+                                    &self.qh,
+                                    self.active_output.as_ref(),
+                                    icon_path.as_deref(),
+                                    self.config.icon_size.round() as u32,
+                                    self.scale_factor,
+                                    out_x,
+                                    out_y,
+                                );
+                            }
+                        } else {
+                            self.drag_ghost = drag_ghost::DragGhost::new(
+                                &self.compositor_state,
+                                &self.layer_shell,
+                                &self.shm,
+                                &self.qh,
+                                self.active_output.as_ref(),
+                                icon_path.as_deref(),
+                                self.config.icon_size.round() as u32,
+                                self.scale_factor,
+                                out_x,
+                                out_y,
+                            );
+                        }
+                    } else if self.drag_ghost.as_ref().is_some_and(|g| !g.is_fading()) {
+                        self.drag_ghost = None;
                     }
                     if let Some((from, to)) = reorder_pair {
                         let app = self.pinned_apps.remove(from);
@@ -1566,17 +1677,28 @@ impl PointerHandler for DockApp {
                         }
                     } else {
                         if let Some(idx) = self.physics.icon_at_cursor(&self.config) {
-                            if idx < self.pinned_apps.len() {
-                                self.drag_state = Some(DragState {
-                                    pinned_idx: idx,
-                                    start_pos: (event.position.0 as f32, event.position.1 as f32),
-                                    active: false,
-                                    outside: false,
-                                    reordered: false,
-                                });
-                            } else {
-                                self.drag_state = None;
-                            }
+                            let pinned_offset = usize::from(self.config.show_launchpad);
+                            let target = match self.entries.get(idx).map(|e| &e.kind) {
+                                Some(DockEntryKind::Folder { path, .. }) => {
+                                    Some(DragTarget::PinnedFolder(path.clone()))
+                                }
+                                _ if !self.config.active_apps_only
+                                    && idx >= pinned_offset
+                                    && idx < pinned_offset + self.pinned_apps.len() =>
+                                {
+                                    Some(DragTarget::PinnedApp(idx - pinned_offset))
+                                }
+                                _ => None,
+                            };
+                            let icon_path = self.entries.get(idx).and_then(|e| e.icon_path.clone());
+                            self.drag_state = target.map(|target| DragState {
+                                target,
+                                icon_path,
+                                start_pos: (event.position.0 as f32, event.position.1 as f32),
+                                active: false,
+                                outside: false,
+                                reordered: false,
+                            });
                         } else {
                             self.drag_state = None;
                         }
@@ -1599,25 +1721,50 @@ impl PointerHandler for DockApp {
                     } else if let Some(drag) = self.drag_state.take().filter(|d| d.active) {
                         self.physics.set_pressed(false, &self.config);
                         if drag.outside {
-                            if drag.pinned_idx < self.pinned_apps.len() {
-                                let removed = self.pinned_apps.remove(drag.pinned_idx);
-                                self.config.pinned_apps = self
-                                    .pinned_apps
-                                    .iter()
-                                    .map(|a| a.id.clone())
-                                    .collect();
-                                self.config.save();
-                                tracing::info!(app = %removed.name, "Aplicación desfijada mediante arrastre");
-                                self.sync_dock_state();
+                            if let Some(ref mut ghost) = self.drag_ghost {
+                                ghost.start_fade(&self.qh);
                             }
-                        } else if drag.reordered {
+                            match drag.target {
+                                DragTarget::PinnedApp(pinned_idx) => {
+                                    if pinned_idx < self.pinned_apps.len() {
+                                        let removed = self.pinned_apps.remove(pinned_idx);
+                                        self.config.pinned_apps = self
+                                            .pinned_apps
+                                            .iter()
+                                            .map(|a| a.id.clone())
+                                            .collect();
+                                        let _ = self.config.save();
+                                        tracing::info!(app = %removed.name, "Aplicación desfijada mediante arrastre");
+                                        self.sync_dock_state();
+                                    }
+                                }
+                                DragTarget::PinnedFolder(folder_path) => {
+                                    let before = self.config.pinned_folders.len();
+                                    self.config.pinned_folders.retain(|p| p != &folder_path);
+                                    self.config.folder_view_modes.remove(&folder_path);
+                                    if self.config.pinned_folders.len() != before {
+                                        if self.fan_stack.as_ref().is_some_and(|fs| fs.data.folder_path == folder_path) {
+                                            self.fan_stack = None;
+                                        }
+                                        let _ = self.config.save();
+                                        tracing::info!(folder = %folder_path, "Carpeta desfijada mediante arrastre");
+                                        self.sync_dock_state();
+                                    }
+                                }
+                            }
+                        } else {
+                            if self.drag_ghost.as_ref().is_some_and(|g| !g.is_fading()) {
+                                self.drag_ghost = None;
+                            }
+                            if drag.reordered {
                             self.config.pinned_apps = self
                                 .pinned_apps
                                 .iter()
                                 .map(|a| a.id.clone())
                                 .collect();
-                            self.config.save();
+                            let _ = self.config.save();
                             tracing::info!("Nuevo orden de aplicaciones fijadas guardado en config.toml");
+                            }
                         }
                         needs_redraw = true;
                     } else {
@@ -1795,18 +1942,28 @@ impl PointerHandler for DockApp {
 }
 
 impl LayerShellHandler for DockApp {
-    fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &LayerSurface) {
+    fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface) {
+        if self.drag_ghost.as_ref().is_some_and(|g| g.is_surface(layer.wl_surface())) {
+            self.drag_ghost = None;
+            return;
+        }
         self.exit = true;
     }
 
     fn configure(
         &mut self,
         _conn: &Connection,
-        _qh: &QueueHandle<Self>,
+        qh: &QueueHandle<Self>,
         layer: &LayerSurface,
         configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
+        if self.drag_ghost.as_ref().is_some_and(|g| g.is_surface(layer.wl_surface())) {
+            if let Some(ref mut ghost) = self.drag_ghost {
+                ghost.on_configure(qh);
+            }
+            return;
+        }
         let old_w = self.logical_width;
         let old_h = self.logical_height;
 
@@ -2262,6 +2419,13 @@ impl DataSourceHandler for DockApp {
 delegate_data_device!(DockApp);
 
 
+impl ShmHandler for DockApp {
+    fn shm_state(&mut self) -> &mut Shm {
+        &mut self.shm
+    }
+}
+
+delegate_shm!(DockApp);
 delegate_layer!(DockApp);
 delegate_registry!(DockApp);
 delegate_noop!(DockApp: ignore ExtBackgroundEffectManagerV1);
@@ -2283,6 +2447,7 @@ pub fn run_wayland_loop(
 
     let compositor_state = CompositorState::bind(&globals, &qh)?;
     let layer_shell = LayerShell::bind(&globals, &qh)?;
+    let shm = Shm::bind(&globals, &qh)?;
     let seat_state = SeatState::new(&globals, &qh);
 
     let mut initial_entries: Vec<DockEntry> = pinned_apps
@@ -2350,6 +2515,9 @@ pub fn run_wayland_loop(
         keyboard: None,
         modifiers: Modifiers::default(),
         drag_state: None,
+        drag_ghost: None,
+        layer_shell,
+        shm,
         fan_stack: None,
         data_device_manager: DataDeviceManagerState::bind(&globals, &qh).ok(),
         data_device: None,
