@@ -3,7 +3,9 @@ use std::path::Path;
 use bytemuck::{Pod, Zeroable};
 use cosmic_text::{Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashCache, Weight};
 use dock_core::stack::{FanLayout, FanStackData, GridLayout, ListLayout};
-use resvg::tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Stroke, Transform};
+use resvg::tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Transform};
+
+const CURVED_ARROW_SVG: &[u8] = include_bytes!("../assets/curved_arrow.svg");
 use wgpu::util::DeviceExt;
 
 use crate::icons::load_icon_rgba;
@@ -301,6 +303,7 @@ impl FanStackPipeline {
         hovered_slot: Option<usize>,
         hover_more: bool,
         is_dark: bool,
+        custom_tint: Option<[u8; 3]>,
         opacity: f32,
     ) {
         let icon_px = layout
@@ -309,7 +312,7 @@ impl FanStackPipeline {
             .map(|s| (s.icon_size * scale).round().max(32.0) as u32)
             .unwrap_or(48);
         self.grid_bg = None;
-        let key = (data.folder_path.clone(), icon_px, is_dark, 0u8, None, 0u8);
+        let key = (data.folder_path.clone(), icon_px, is_dark, 0u8, custom_tint, 0u8);
 
         if self.baked_key.as_ref() != Some(&key) || self.baked_slots.len() != data.items.len() {
             self.baked_slots.clear();
@@ -354,7 +357,7 @@ impl FanStackPipeline {
             ) {
                 let d = (layout.more_button_radius * 2.0 * scale).ceil().max(24.0) as u32;
                 let mut cpm = Pixmap::new(d, d).unwrap();
-                draw_more_circle(&mut cpm, d as f32 * 0.5, d as f32 * 0.5, d as f32 * 0.48, is_dark);
+                draw_more_circle(&mut cpm, d as f32 * 0.5, d as f32 * 0.5, d as f32 * 0.48, is_dark, custom_tint);
                 self.more_circle = Some(self.upload_sprite(device, queue, d, d, cpm.data()));
 
                 let pw = (lw * scale).ceil().max(24.0) as u32;
@@ -553,7 +556,7 @@ impl FanStackPipeline {
             // 3. Botón final "Abrir en gestor de archivos"
             let d = (layout.open_button_slot.icon_rect[2] * scale).ceil().max(24.0) as u32;
             let mut cpm = Pixmap::new(d, d).unwrap();
-            draw_more_circle(&mut cpm, d as f32 * 0.5, d as f32 * 0.5, d as f32 * 0.46, is_dark);
+            draw_more_circle(&mut cpm, d as f32 * 0.5, d as f32 * 0.5, d as f32 * 0.46, is_dark, custom_tint);
             self.more_circle = Some(self.upload_sprite(device, queue, d, d, cpm.data()));
 
             let pw = (layout.open_button_slot.label_rect[2] * scale).ceil().max(24.0) as u32;
@@ -899,37 +902,90 @@ fn draw_pill(pixmap: &mut Pixmap, x: f32, y: f32, w: f32, h: f32, is_dark: bool)
     pixmap.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
 }
 
-fn draw_more_circle(pixmap: &mut Pixmap, cx: f32, cy: f32, r: f32, is_dark: bool) {
+fn draw_more_circle(
+    pixmap: &mut Pixmap,
+    cx: f32,
+    cy: f32,
+    r: f32,
+    is_dark: bool,
+    custom_tint: Option<[u8; 3]>,
+) {
     let Some(circle) = PathBuilder::from_circle(cx, cy, r) else {
         return;
     };
+
+    let effective_dark = match custom_tint {
+        Some([tr, tg, tb]) => {
+            let lum = 0.2126 * (tr as f32) + 0.7152 * (tg as f32) + 0.0722 * (tb as f32);
+            lum < 140.0
+        }
+        None => is_dark,
+    };
+
     let mut bg = Paint::default();
     bg.anti_alias = true;
-    if is_dark {
+    if let Some([tr, tg, tb]) = custom_tint {
+        let shift = |c: u8| -> u8 {
+            if effective_dark {
+                c.saturating_add(24)
+            } else {
+                c.saturating_sub(20)
+            }
+        };
+        bg.set_color_rgba8(shift(tr), shift(tg), shift(tb), 225);
+    } else if effective_dark {
         bg.set_color_rgba8(50, 54, 66, 225);
     } else {
         bg.set_color_rgba8(235, 238, 245, 230);
     }
     pixmap.fill_path(&circle, &bg, FillRule::Winding, Transform::identity(), None);
 
-    let mut pb = PathBuilder::new();
-    let d = r * 0.42;
-    pb.move_to(cx - d, cy + d * 0.25);
-    pb.line_to(cx + d * 0.65, cy - d * 0.25);
-    pb.move_to(cx + d * 0.05, cy - d * 0.7);
-    pb.line_to(cx + d * 0.75, cy - d * 0.25);
-    pb.line_to(cx + d * 0.2, cy + d * 0.45);
-    if let Some(arrow) = pb.finish() {
-        let mut fg = Paint::default();
-        fg.anti_alias = true;
-        if is_dark {
-            fg.set_color_rgba8(245, 245, 250, 245);
-        } else {
-            fg.set_color_rgba8(40, 42, 50, 245);
+    // Rasterizar curved_arrow.svg y aplicar tinte adaptativo según luminancia
+    let icon_d = (r * 1.18).round().max(12.0) as u32;
+    let opt = resvg::usvg::Options::default();
+    if let Ok(tree) = resvg::usvg::Tree::from_data(CURVED_ARROW_SVG, &opt) {
+        if let Some(mut arrow_pm) = Pixmap::new(icon_d, icon_d) {
+            let svg_size = tree.size();
+            let sw = svg_size.width().max(1.0);
+            let sh = svg_size.height().max(1.0);
+            let fit = (icon_d as f32 / sw).min(icon_d as f32 / sh);
+            let tx = (icon_d as f32 - sw * fit) * 0.5;
+            let ty = (icon_d as f32 - sh * fit) * 0.5;
+            let transform = Transform::from_scale(fit, fit).post_translate(tx, ty);
+            resvg::render(&tree, transform, &mut arrow_pm.as_mut());
+
+            let (fr, fg, fb): (u16, u16, u16) = if effective_dark {
+                (245, 245, 250)
+            } else {
+                (32, 34, 42)
+            };
+            for px in arrow_pm.pixels_mut() {
+                let a = px.alpha();
+                if a == 0 {
+                    continue;
+                }
+                let a16 = a as u16;
+                let pr = ((fr * a16 + 127) / 255) as u8;
+                let pg = ((fg * a16 + 127) / 255) as u8;
+                let pb = ((fb * a16 + 127) / 255) as u8;
+                if let Some(tinted) =
+                    resvg::tiny_skia::PremultipliedColorU8::from_rgba(pr, pg, pb, a)
+                {
+                    *px = tinted;
+                }
+            }
+
+            let dx = (cx - icon_d as f32 * 0.5).round() as i32;
+            let dy = (cy - icon_d as f32 * 0.5).round() as i32;
+            pixmap.draw_pixmap(
+                dx,
+                dy,
+                arrow_pm.as_ref(),
+                &resvg::tiny_skia::PixmapPaint::default(),
+                Transform::identity(),
+                None,
+            );
         }
-        let mut stroke = Stroke::default();
-        stroke.width = (r * 0.14).max(1.8);
-        pixmap.stroke_path(&arrow, &fg, &stroke, Transform::identity(), None);
     }
 }
 

@@ -638,6 +638,7 @@ impl DockRenderer {
         hovered_slot: Option<usize>,
         hover_more: bool,
         is_dark: bool,
+        custom_tint: Option<[u8; 3]>,
         opacity: f32,
     ) {
         self.stack_pipeline.update_fan(
@@ -652,6 +653,7 @@ impl DockRenderer {
             hovered_slot,
             hover_more,
             is_dark,
+            custom_tint,
             opacity,
         );
         self.fan_stack_opacity = opacity;

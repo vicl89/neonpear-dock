@@ -106,6 +106,7 @@ struct FanStackState {
     progress: f32,
     closing: bool,
     dirty: bool,
+    anchor: Option<(f32, f32, u32, u32)>,
 }
 
 impl FanStackState {
@@ -1085,17 +1086,27 @@ impl DockApp {
                 custom_tint,
             };
             if let Some(ref mut fs) = self.fan_stack {
-                let cw = self.requested_width.max(1) as f32;
-                let ch = self.requested_height.max(1) as f32;
-                let (ax, ay) = if let Some(slot) = layout.icons.get(fs.entry_idx) {
-                    match self.config.position {
-                        dock_core::DockPosition::Bottom => (slot.x, layout.pill.y - 10.0),
-                        dock_core::DockPosition::Top => (slot.x, layout.pill.y + layout.pill.height + 10.0),
-                        dock_core::DockPosition::Left => (layout.pill.x + layout.pill.width + 10.0, slot.y),
-                        dock_core::DockPosition::Right => (layout.pill.x - 10.0, slot.y),
+                let req_w = self.requested_width.max(1);
+                let req_h = self.requested_height.max(1);
+                let cw = req_w as f32;
+                let ch = req_h as f32;
+                let (ax, ay) = match fs.anchor {
+                    Some((ax, ay, aw, ah)) if aw == req_w && ah == req_h => (ax, ay),
+                    _ => {
+                        let computed = if let Some(slot) = layout.icons.get(fs.entry_idx) {
+                            match self.config.position {
+                                dock_core::DockPosition::Bottom => (slot.x, layout.pill.y - 10.0),
+                                dock_core::DockPosition::Top => (slot.x, layout.pill.y + layout.pill.height + 10.0),
+                                dock_core::DockPosition::Left => (layout.pill.x + layout.pill.width + 10.0, slot.y),
+                                dock_core::DockPosition::Right => (layout.pill.x - 10.0, slot.y),
+                            }
+                        } else {
+                            (cw * 0.5, (layout.pill.y - 10.0).max(120.0))
+                        };
+                        fs.anchor = Some((computed.0, computed.1, req_w, req_h));
+                        fs.dirty = true;
+                        computed
                     }
-                } else {
-                    (cw * 0.5, (layout.pill.y - 10.0).max(120.0))
                 };
 
                 match fs.view_mode {
@@ -1176,12 +1187,18 @@ impl DockApp {
                             self.config.language.resolve(),
                         );
                         if fs.dirty {
+                            let fan_tint = if self.config.glass_theme == dock_core::GlassTheme::Custom {
+                                Some(self.config.custom_tint)
+                            } else {
+                                None
+                            };
                             renderer.set_fan_stack(
                                 &fs.data,
                                 &fan_layout,
                                 fs.hovered_slot,
                                 fs.hover_more,
                                 effective_dark >= 0.5,
+                                fan_tint,
                                 fs.progress.clamp(0.0, 1.0),
                             );
                             fs.dirty = false;
@@ -1700,6 +1717,7 @@ impl PointerHandler for DockApp {
                                             progress: 0.05,
                                             closing: false,
                                             dirty: true,
+                                            anchor: None,
                                         });
                                         self.sync_canvas_size();
                                         self.hide_deadline = None;
