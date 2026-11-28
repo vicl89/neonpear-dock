@@ -92,6 +92,7 @@ enum DragTarget {
 
 struct DragState {
     target: DragTarget,
+    entry_key: String,
     icon_path: Option<std::path::PathBuf>,
     start_pos: (f32, f32),
     active: bool,
@@ -1058,7 +1059,11 @@ impl DockApp {
             return;
         }
 
-        let layout = self.physics.compute_frame(&self.config);
+        let mut layout = self.physics.compute_frame(&self.config);
+
+        if self.drag_state.as_ref().is_some_and(|d| d.active) {
+            layout.tooltip = None;
+        }
 
         if layout.hide_progress < 0.05 && !layout.icons.is_empty() {
             let icon_rects: Vec<(u32, u32, u32, u32)> = layout
@@ -1510,8 +1515,12 @@ impl PointerHandler for DockApp {
 
                         if drag.active && !drag.outside {
                             if let DragTarget::PinnedApp(ref mut pinned_idx) = drag.target {
-                                if let Some(entry_idx) = self.physics.icon_at_cursor(&self.config) {
-                                    let pinned_offset = usize::from(self.config.show_launchpad);
+                                let pinned_offset = usize::from(self.config.show_launchpad);
+                                let current_entry_idx = *pinned_idx + pinned_offset;
+                                if let Some(entry_idx) = self
+                                    .physics
+                                    .reorder_target_at_cursor(current_entry_idx, &self.config)
+                                {
                                     if !self.config.active_apps_only
                                         && entry_idx >= pinned_offset
                                         && entry_idx < pinned_offset + self.pinned_apps.len()
@@ -1530,6 +1539,13 @@ impl PointerHandler for DockApp {
                     if cancel_press {
                         self.physics.set_pressed(false, &self.config);
                     }
+                    let dragged_out_key = self
+                        .drag_state
+                        .as_ref()
+                        .filter(|d| d.active && d.outside)
+                        .map(|d| d.entry_key.clone());
+                    self.physics.set_dragged_out_key(dragged_out_key);
+
                     let ghost_outside = self
                         .drag_state
                         .as_ref()
@@ -1690,9 +1706,15 @@ impl PointerHandler for DockApp {
                                 }
                                 _ => None,
                             };
+                            let entry_key = self
+                                .entries
+                                .get(idx)
+                                .map(|e| e.key.clone())
+                                .unwrap_or_default();
                             let icon_path = self.entries.get(idx).and_then(|e| e.icon_path.clone());
                             self.drag_state = target.map(|target| DragState {
                                 target,
+                                entry_key,
                                 icon_path,
                                 start_pos: (event.position.0 as f32, event.position.1 as f32),
                                 active: false,
@@ -1720,6 +1742,7 @@ impl PointerHandler for DockApp {
                         }
                     } else if let Some(drag) = self.drag_state.take().filter(|d| d.active) {
                         self.physics.set_pressed(false, &self.config);
+                        self.physics.set_dragged_out_key(None);
                         if drag.outside {
                             if let Some(ref mut ghost) = self.drag_ghost {
                                 ghost.start_fade(&self.qh);

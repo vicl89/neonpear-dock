@@ -124,6 +124,8 @@ struct ItemPhysics {
     dot_opacity: f32,
     badge_count: u64,
     badge_opacity: f32,
+    presence: f32,
+    slide_offset: f32,
     bounce: BounceState,
 }
 
@@ -157,6 +159,7 @@ pub struct DockPhysics {
     tooltip_has_pos: bool,
     menu: Option<MenuState>,
     max_axis_extent: Option<f32>,
+    dragged_out_key: Option<String>,
 }
 
 impl DockPhysics {
@@ -175,6 +178,8 @@ impl DockPhysics {
                 dot_opacity: 0.0,
                 badge_count: 0,
                 badge_opacity: 0.0,
+                presence: 1.0,
+                slide_offset: 0.0,
                 bounce: BounceState::default(),
             })
             .collect();
@@ -195,6 +200,7 @@ impl DockPhysics {
             tooltip_has_pos: false,
             menu: None,
             max_axis_extent: None,
+            dragged_out_key: None,
         }
     }
 
@@ -245,6 +251,67 @@ impl DockPhysics {
 
     /// Sincroniza la lista visible de iconos preservando animaciones por clave.
     /// Devuelve `true` si cambió la composición, orden o etiquetas.
+    /// Indica qué ícono está siendo arrastrado fuera del dock para colapsar su espacio.
+    pub fn set_dragged_out_key(&mut self, key: Option<String>) -> bool {
+        if self.dragged_out_key == key {
+            return false;
+        }
+        self.dragged_out_key = key;
+        true
+    }
+
+    /// Calcula el índice destino al reordenar usando centros en reposo (sin `slide_offset`
+    /// ni magnificación) e histéresis para evitar oscilaciones al intercambiar íconos.
+    pub fn reorder_target_at_cursor(
+        &self,
+        current_entry_idx: usize,
+        config: &DockConfig,
+    ) -> Option<usize> {
+        let _eff_cfg = self.effective_config(config);
+        let config = _eff_cfg.as_ref();
+        let n = self.items.len();
+        if n == 0 || current_entry_idx >= n {
+            return None;
+        }
+        let (cx, cy) = self.cursor?;
+        let (canvas_w, canvas_h) = self.canvas_size(config);
+        let rest_w = resting_pill_width(&self.items, config);
+
+        let (cursor_axis, mut rx) = if config.position.is_vertical() {
+            (cy, (canvas_h as f32 - rest_w) * 0.5 + config.pill_padding_x)
+        } else {
+            (cx, (canvas_w as f32 - rest_w) * 0.5 + config.pill_padding_x)
+        };
+
+        let mut rest_centers = Vec::with_capacity(n);
+        for i in 0..n {
+            rest_centers.push(rx + config.icon_size * 0.5);
+            rx += config.icon_size;
+            if i + 1 < n {
+                rx += gap_between(self.items[i].section, self.items[i + 1].section, config);
+            }
+        }
+
+        let cur_dist = (cursor_axis - rest_centers[current_entry_idx]).abs();
+        let mut best_idx = current_entry_idx;
+        let mut best_dist = cur_dist;
+        for (i, &center) in rest_centers.iter().enumerate() {
+            let d = (cursor_axis - center).abs();
+            if d < best_dist {
+                best_dist = d;
+                best_idx = i;
+            }
+        }
+
+        // Exige cruzar ~12% del ancho del ícono más allá del punto medio antes de intercambiar
+        let hysteresis = config.icon_size * 0.24;
+        if best_idx != current_entry_idx && (cur_dist - best_dist) >= hysteresis {
+            Some(best_idx)
+        } else {
+            Some(current_entry_idx)
+        }
+    }
+
     pub fn sync_entries(&mut self, entries: &[DockEntry], config: &DockConfig) -> bool {
         let _eff_cfg = self.effective_config(config);
         let config = _eff_cfg.as_ref();
@@ -255,6 +322,8 @@ impl DockPhysics {
         if unchanged {
             return false;
         }
+
+        let old_centers = item_visual_centers(&self.items, config, true);
 
         let pressed_key = self
             .pressed_index
@@ -278,7 +347,7 @@ impl DockPhysics {
                     key: entry.key.clone(),
                     label: entry.label.clone(),
                     section: entry.section,
-                    current_size: (config.icon_size * 0.35).max(8.0),
+                    current_size: config.icon_size,
                     running: false,
                     minimized: false,
                     demands_attention: false,
@@ -286,8 +355,25 @@ impl DockPhysics {
                     dot_opacity: 0.0,
                     badge_count: 0,
                     badge_opacity: 0.0,
+                    presence: 0.0,
+                    slide_offset: 0.0,
                     bounce: BounceState::default(),
                 });
+            }
+        }
+
+        let new_centers = item_visual_centers(&rebuilt, config, false);
+        let max_slide = (config.icon_size * 5.0).max(160.0);
+        for item in &mut rebuilt {
+            if let (Some(&old_c), Some(&new_c)) =
+                (old_centers.get(&item.key), new_centers.get(&item.key))
+            {
+                let delta = old_c - new_c;
+                if delta.abs() > 0.5 {
+                    item.slide_offset = delta.clamp(-max_slide, max_slide);
+                } else {
+                    item.slide_offset = 0.0;
+                }
             }
         }
 
@@ -768,13 +854,38 @@ impl DockPhysics {
         let factor = (1.0 - (-22.0 * dt_secs).exp()).clamp(0.0, 1.0);
         let dot_factor = (1.0 - (-14.0 * dt_secs).exp()).clamp(0.0, 1.0);
 
+        let slide_factor = (1.0 - (-18.0 * dt_secs).exp()).clamp(0.0, 1.0);
+        for item in &mut self.items {
+            let target_presence = if self.dragged_out_key.as_deref() == Some(item.key.as_str()) {
+                0.0
+            } else {
+                1.0
+            };
+            let p_diff = target_presence - item.presence;
+            if p_diff.abs() > 0.004 {
+                item.presence += p_diff * slide_factor;
+                animating = true;
+            } else {
+                item.presence = target_presence;
+            }
+
+            if item.slide_offset.abs() > 0.15 {
+                item.slide_offset *= 1.0 - slide_factor;
+                animating = true;
+            } else {
+                item.slide_offset = 0.0;
+            }
+        }
+
         let mut rest_centers = Vec::with_capacity(n);
         let mut rx = rest_start_x;
         for i in 0..n {
-            rest_centers.push(rx + config.icon_size * 0.5);
-            rx += config.icon_size;
+            let slot_w = config.icon_size * self.items[i].presence;
+            rest_centers.push(rx + slot_w * 0.5);
+            rx += slot_w;
             if i + 1 < n {
-                rx += gap_between(self.items[i].section, self.items[i + 1].section, config);
+                let w = gap_presence_weight(&self.items, i);
+                rx += gap_between(self.items[i].section, self.items[i + 1].section, config) * w;
             }
         }
 
@@ -1012,8 +1123,11 @@ impl DockPhysics {
             let mut dividers = Vec::new();
 
             for (i, item) in self.items.iter().enumerate() {
-                let size = item.current_size;
+                let is_dragged_out = self.dragged_out_key.as_deref() == Some(item.key.as_str());
+                let size = item.current_size * item.presence;
+                let vis_alpha = if is_dragged_out { 0.0 } else { item.presence };
                 let bounce_x = item.bounce.offset_y();
+                let draw_y = cursor_y + item.slide_offset;
 
                 let icon_x = if is_left {
                     baseline_x + bounce_x
@@ -1022,29 +1136,29 @@ impl DockPhysics {
                 };
                 icons.push(IconSlot {
                     x: icon_x,
-                    y: cursor_y,
+                    y: draw_y,
                     size,
                     pressed: self.pressed_index == Some(i),
-                    opacity: item.icon_opacity,
+                    opacity: item.icon_opacity * vis_alpha,
                 });
 
-                if item.dot_opacity > 0.005 {
+                if item.dot_opacity * vis_alpha > 0.005 {
                     dots.push(DotSlot {
                         x: dot_x,
-                        y: cursor_y + size * 0.5,
+                        y: draw_y + size * 0.5,
                         radius: DOT_RADIUS,
-                        opacity: item.dot_opacity,
+                        opacity: item.dot_opacity * vis_alpha,
                     });
                 }
 
-                if item.badge_opacity > 0.005 && item.badge_count > 0 {
+                if item.badge_opacity * vis_alpha > 0.005 && item.badge_count > 0 {
                     let badge_scale = (size / config.icon_size.max(1.0)).clamp(0.75, 2.0);
                     badges.push(BadgeSlot {
                         x: icon_x + size * 0.84,
-                        y: cursor_y + size * 0.14,
+                        y: draw_y + size * 0.14,
                         scale: badge_scale,
                         count: item.badge_count,
-                        opacity: item.badge_opacity,
+                        opacity: item.badge_opacity * vis_alpha,
                     });
                 }
 
@@ -1052,8 +1166,9 @@ impl DockPhysics {
 
                 if i + 1 < n {
                     let next_sec = self.items[i + 1].section;
-                    let gap = gap_between(item.section, next_sec, config);
-                    if item.section != next_sec {
+                    let w = gap_presence_weight(&self.items, i);
+                    let gap = gap_between(item.section, next_sec, config) * w;
+                    if item.section != next_sec && w > 0.05 {
                         dividers.push(DividerSlot {
                             x: div_x,
                             y: cursor_y + (gap - DIVIDER_WIDTH) * 0.5,
@@ -1134,8 +1249,11 @@ impl DockPhysics {
         let mut dividers = Vec::new();
 
         for (i, item) in self.items.iter().enumerate() {
-            let size = item.current_size;
+            let is_dragged_out = self.dragged_out_key.as_deref() == Some(item.key.as_str());
+            let size = item.current_size * item.presence;
+            let vis_alpha = if is_dragged_out { 0.0 } else { item.presence };
             let bounce_y = item.bounce.offset_y();
+            let draw_x = cursor_x + item.slide_offset;
 
             let icon_y = if is_top {
                 baseline_y + bounce_y
@@ -1143,31 +1261,31 @@ impl DockPhysics {
                 baseline_y - size - bounce_y
             };
             icons.push(IconSlot {
-                x: cursor_x,
+                x: draw_x,
                 y: icon_y,
                 size,
                 pressed: self.pressed_index == Some(i),
-                opacity: item.icon_opacity,
+                opacity: item.icon_opacity * vis_alpha,
             });
 
-            if item.dot_opacity > 0.005 {
+            if item.dot_opacity * vis_alpha > 0.005 {
                 dots.push(DotSlot {
-                    x: cursor_x + size * 0.5,
+                    x: draw_x + size * 0.5,
                     y: dot_y,
                     radius: DOT_RADIUS,
-                    opacity: item.dot_opacity,
+                    opacity: item.dot_opacity * vis_alpha,
                 });
             }
 
-            if item.badge_opacity > 0.005 && item.badge_count > 0 {
+            if item.badge_opacity * vis_alpha > 0.005 && item.badge_count > 0 {
                 let icon_y = if is_top { baseline_y + bounce_y } else { baseline_y - size - bounce_y };
                 let badge_scale = (size / config.icon_size.max(1.0)).clamp(0.75, 2.0);
                 badges.push(BadgeSlot {
-                    x: cursor_x + size * 0.84,
+                    x: draw_x + size * 0.84,
                     y: icon_y + size * 0.14,
                     scale: badge_scale,
                     count: item.badge_count,
-                    opacity: item.badge_opacity,
+                    opacity: item.badge_opacity * vis_alpha,
                 });
             }
 
@@ -1175,8 +1293,9 @@ impl DockPhysics {
 
             if i + 1 < n {
                 let next_sec = self.items[i + 1].section;
-                let gap = gap_between(item.section, next_sec, config);
-                if item.section != next_sec {
+                let w = gap_presence_weight(&self.items, i);
+                let gap = gap_between(item.section, next_sec, config) * w;
+                if item.section != next_sec && w > 0.05 {
                     dividers.push(DividerSlot {
                         x: cursor_x + (gap - DIVIDER_WIDTH) * 0.5,
                         y: div_y,
@@ -1437,18 +1556,51 @@ fn gap_between(a: DockSection, b: DockSection, config: &DockConfig) -> f32 {
     }
 }
 
+fn gap_presence_weight(items: &[ItemPhysics], i: usize) -> f32 {
+    if i + 1 >= items.len() {
+        return 0.0;
+    }
+    if i + 2 == items.len() {
+        items[i].presence.min(items[i + 1].presence)
+    } else {
+        items[i].presence
+    }
+}
+
 fn current_content_width(items: &[ItemPhysics], config: &DockConfig) -> f32 {
     if items.is_empty() {
         return config.icon_size;
     }
     let mut total = 0.0;
     for (i, item) in items.iter().enumerate() {
-        total += item.current_size;
+        total += item.current_size * item.presence;
         if i + 1 < items.len() {
-            total += gap_between(item.section, items[i + 1].section, config);
+            let w = gap_presence_weight(items, i);
+            total += gap_between(item.section, items[i + 1].section, config) * w;
         }
     }
-    total
+    total.max(config.icon_size * 0.5)
+}
+
+fn item_visual_centers(
+    items: &[ItemPhysics],
+    config: &DockConfig,
+    include_slide: bool,
+) -> HashMap<String, f32> {
+    let mut map = HashMap::with_capacity(items.len());
+    let content_w = current_content_width(items, config);
+    let mut cursor = -content_w * 0.5;
+    for (i, item) in items.iter().enumerate() {
+        let size = item.current_size * item.presence;
+        let slide = if include_slide { item.slide_offset } else { 0.0 };
+        map.insert(item.key.clone(), cursor + size * 0.5 + slide);
+        cursor += size;
+        if i + 1 < items.len() {
+            let w = gap_presence_weight(items, i);
+            cursor += gap_between(item.section, items[i + 1].section, config) * w;
+        }
+    }
+    map
 }
 
 fn resting_pill_width(items: &[ItemPhysics], config: &DockConfig) -> f32 {
@@ -1510,8 +1662,8 @@ mod tests {
 
     #[test]
     fn canvas_size_respects_orientation_in_four_positions() {
-        let entries = sample_entries(8);
-        let physics = DockPhysics::new(&entries, &DockConfig::default());
+        let small = DockPhysics::new(&sample_entries(8), &DockConfig::default());
+        let large = DockPhysics::new(&sample_entries(16), &DockConfig::default());
 
         for pos in [
             DockPosition::Bottom,
@@ -1521,12 +1673,21 @@ mod tests {
         ] {
             let mut cfg = DockConfig::default();
             cfg.position = pos;
-            let (w, h) = physics.canvas_size(&cfg);
+            let (w, h) = small.canvas_size(&cfg);
+            let (lw, lh) = large.canvas_size(&cfg);
+            let (pill_w, pill_h) = small.resting_pill_size(&cfg);
+
             assert!(w > 0 && h > 0, "canvas inválido para {pos:?}: {w}x{h}");
+            assert!(
+                (w as f32) >= pill_w && (h as f32) >= pill_h,
+                "en {pos:?} el canvas ({w}x{h}) debe contener la píldora ({pill_w}x{pill_h})"
+            );
             if pos.is_vertical() {
-                assert!(h > w, "en {pos:?} el alto ({h}) debe superar al ancho ({w})");
+                assert!(lh > h, "en {pos:?} añadir íconos debe aumentar el alto ({h} -> {lh})");
+                assert_eq!(lw, w, "en {pos:?} añadir íconos no debe cambiar el ancho ({w} vs {lw})");
             } else {
-                assert!(w > h, "en {pos:?} el ancho ({w}) debe superar al alto ({h})");
+                assert!(lw > w, "en {pos:?} añadir íconos debe aumentar el ancho ({w} -> {lw})");
+                assert_eq!(lh, h, "en {pos:?} añadir íconos no debe cambiar el alto ({h} vs {lh})");
             }
         }
     }
