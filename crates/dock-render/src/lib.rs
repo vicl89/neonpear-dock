@@ -127,6 +127,96 @@ fn detect_kde_font() -> Option<(String, Option<std::path::PathBuf>)> {
     None
 }
 
+fn fc_match_file(pattern: &str) -> Option<std::path::PathBuf> {
+    std::process::Command::new("fc-match")
+        .args(["-f", "%{file}", pattern])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|p| !p.is_empty())
+        .map(std::path::PathBuf::from)
+}
+
+fn build_minimal_font_system() -> cosmic_text::FontSystem {
+    let locale = std::env::var("LC_ALL")
+        .or_else(|_| std::env::var("LANG"))
+        .ok()
+        .and_then(|v| v.split('.').next().map(|s| s.replace('_', "-")))
+        .filter(|s| !s.is_empty() && s != "C" && s != "POSIX")
+        .unwrap_or_else(|| "en-US".to_string());
+
+    let mut db = cosmic_text::fontdb::Database::new();
+    let mut loaded_paths = std::collections::HashSet::new();
+    let mut resolved_family: Option<String> = None;
+
+    let mut load_path = |path: std::path::PathBuf, db: &mut cosmic_text::fontdb::Database| {
+        if !loaded_paths.insert(path.clone()) {
+            return;
+        }
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                let ids = db.load_font_source(cosmic_text::fontdb::Source::Binary(
+                    std::sync::Arc::new(bytes),
+                ));
+                if resolved_family.is_none() {
+                    if let Some(face) = ids.first().and_then(|id| db.face(*id)) {
+                        if let Some((db_name, _)) = face.families.first() {
+                            resolved_family = Some(db_name.clone());
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                tracing::warn!(?path, %err, "No se pudo leer archivo de fuente del sistema");
+            }
+        }
+    };
+
+    if let Some((kde_family, file_path)) = detect_kde_font() {
+        if let Some(path) = file_path {
+            load_path(path, &mut db);
+        }
+        for variant in [
+            format!("{kde_family}:weight=regular"),
+            format!("{kde_family}:weight=medium"),
+            format!("{kde_family}:weight=bold"),
+        ] {
+            if let Some(path) = fc_match_file(&variant) {
+                load_path(path, &mut db);
+            }
+        }
+        let family_name = resolved_family.clone().unwrap_or(kde_family);
+        db.set_sans_serif_family(&family_name);
+    } else {
+        for variant in ["sans-serif", "sans-serif:weight=medium", "sans-serif:weight=bold"] {
+            if let Some(path) = fc_match_file(variant) {
+                load_path(path, &mut db);
+            }
+        }
+        if let Some(ref family_name) = resolved_family {
+            db.set_sans_serif_family(family_name);
+        }
+    }
+
+    // Respaldo de emergencia solo si fc-match no devolvió ninguna fuente válida
+    if db.faces().next().is_none() {
+        tracing::warn!("Sin fuentes vía fc-match; recurriendo a escaneo completo del sistema");
+        db.load_system_fonts();
+    }
+
+    let face_count = db.faces().count();
+    tracing::info!(
+        locale = %locale,
+        resolved_font = ?resolved_family,
+        files_loaded = loaded_paths.len(),
+        faces_loaded = face_count,
+        "FontSystem inicializado en modo mínimo (sin escaneo completo)"
+    );
+
+    cosmic_text::FontSystem::new_with_locale_and_db(locale, db)
+}
+
 impl DockRenderer {
     /// # Safety
     /// `display_ptr` y `surface_ptr` deben ser punteros Wayland válidos que permanezcan
@@ -395,47 +485,7 @@ impl DockRenderer {
             gpu_icons: Vec::new(),
             dot_pipeline,
             divider_pipeline,
-            font_system: {
-                let mut fs = cosmic_text::FontSystem::new();
-                if let Some((kde_family, file_path)) = detect_kde_font() {
-                    let mut resolved_family = kde_family.clone();
-                    if let Some(path) = &file_path {
-                        if let Ok(bytes) = std::fs::read(path) {
-                            let ids = fs
-                                .db_mut()
-                                .load_font_source(cosmic_text::fontdb::Source::Binary(
-                                    std::sync::Arc::new(bytes),
-                                ));
-                            if let Some(face) = ids.first().and_then(|id| fs.db().face(*id)) {
-                                if let Some((db_name, _)) = face.families.first() {
-                                    resolved_family = db_name.clone();
-                                }
-                            }
-                        } else {
-                            tracing::warn!(?path, "No se pudo leer archivo de fuente KDE");
-                        }
-                    }
-                    fs.db_mut().load_fonts_dir("/usr/local/share/fonts");
-                    fs.db_mut().set_sans_serif_family(&resolved_family);
-                    let matched = fs
-                        .db()
-                        .query(&cosmic_text::fontdb::Query {
-                            families: &[cosmic_text::Family::SansSerif],
-                            weight: cosmic_text::Weight::MEDIUM,
-                            ..Default::default()
-                        })
-                        .and_then(|id| fs.db().face(id))
-                        .map(|f| format!("{:?} (weight={:?})", f.families.first().map(|x| &x.0), f.weight));
-                    tracing::info!(
-                        kde_font = %kde_family,
-                        resolved_font = %resolved_family,
-                        ?file_path,
-                        ?matched,
-                        "Tipografía KDE aplicada a tooltips, menús y badges"
-                    );
-                }
-                fs
-            },
+            font_system: build_minimal_font_system(),
             swash_cache: cosmic_text::SwashCache::new(),
             tooltip_pipeline,
             menu_pipeline,
@@ -593,6 +643,7 @@ impl DockRenderer {
         self.stack_pipeline.update_fan(
             &self.device,
             &self.queue,
+            &mut self.font_system,
             data,
             layout,
             self.config.width,
@@ -604,6 +655,12 @@ impl DockRenderer {
             opacity,
         );
         self.fan_stack_opacity = opacity;
+    }
+
+    /// Recarga la tipografía activa del sistema desde kdeglobals/fontconfig y limpia la caché de glifos.
+    pub fn reload_system_font(&mut self) {
+        self.font_system = build_minimal_font_system();
+        self.swash_cache = cosmic_text::SwashCache::new();
     }
 
     /// Actualiza y muestra la vista Cuadrícula (Grid) de una carpeta fijada.
@@ -622,6 +679,7 @@ impl DockRenderer {
         self.stack_pipeline.update_grid(
             &self.device,
             &self.queue,
+            &mut self.font_system,
             data,
             layout,
             self.config.width,
@@ -653,6 +711,7 @@ impl DockRenderer {
         self.stack_pipeline.update_list(
             &self.device,
             &self.queue,
+            &mut self.font_system,
             data,
             layout,
             self.config.width,

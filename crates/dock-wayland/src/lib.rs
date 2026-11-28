@@ -79,6 +79,7 @@ pub enum SystemEvent {
     BadgeUpdate { app_id: String, count: u64 },
     ConfigReloaded(DockConfig),
     PinDesktopFiles(Vec<String>),
+    SystemFontChanged,
 }
 
 struct DragState {
@@ -2437,6 +2438,15 @@ pub fn run_wayland_loop(
                         state.sync_dock_state();
                         state.sync_canvas_size();
                         state.layer_surface.commit();
+                        state.request_redraw();
+                        let _ = state.conn.flush();
+                    }
+                    SystemEvent::SystemFontChanged => {
+                        tracing::info!("Tipografía del sistema modificada en kdeglobals; recargando fuentes");
+                        if let Some(renderer) = state.renderer.as_mut() {
+                            renderer.reload_system_font();
+                        }
+                        state.sync_dock_state();
                         state.request_redraw();
                         let _ = state.conn.flush();
                     }

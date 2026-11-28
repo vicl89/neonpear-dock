@@ -101,7 +101,6 @@ pub struct FanStackPipeline {
     pipeline: wgpu::RenderPipeline,
     sampler: wgpu::Sampler,
     bind_group_layout: wgpu::BindGroupLayout,
-    font_system: FontSystem,
     swash_cache: SwashCache,
     baked_slots: Vec<BakedSlot>,
     grid_bg: Option<GpuSprite>,
@@ -196,7 +195,6 @@ impl FanStackPipeline {
             pipeline,
             sampler,
             bind_group_layout,
-            font_system: FontSystem::new(),
             swash_cache: SwashCache::new(),
             baked_slots: Vec::new(),
             grid_bg: None,
@@ -294,6 +292,7 @@ impl FanStackPipeline {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        font_system: &mut FontSystem,
         data: &FanStackData,
         layout: &FanLayout,
         canvas_w: u32,
@@ -330,7 +329,7 @@ impl FanStackPipeline {
                 let mut pm = Pixmap::new(pw, ph).unwrap();
                 draw_pill(&mut pm, 0.0, 0.0, pw as f32, ph as f32, is_dark);
                 draw_text_centered(
-                    &mut self.font_system,
+                    font_system,
                     &mut self.swash_cache,
                     &mut pm,
                     &truncate_single_line(&item.name, 34),
@@ -363,7 +362,7 @@ impl FanStackPipeline {
                 let mut lpm = Pixmap::new(pw, ph).unwrap();
                 draw_pill(&mut lpm, 0.0, 0.0, pw as f32, ph as f32, is_dark);
                 draw_text_centered(
-                    &mut self.font_system,
+                    font_system,
                     &mut self.swash_cache,
                     &mut lpm,
                     label,
@@ -450,6 +449,7 @@ impl FanStackPipeline {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        font_system: &mut FontSystem,
         data: &FanStackData,
         layout: &GridLayout,
         canvas_w: u32,
@@ -504,7 +504,7 @@ impl FanStackPipeline {
                 alpha_u8,
             );
             draw_text_centered(
-                &mut self.font_system,
+                font_system,
                 &mut self.swash_cache,
                 &mut bg_pm,
                 &truncate_single_line(&data.folder_name, 36),
@@ -532,7 +532,7 @@ impl FanStackPipeline {
                 let ph = (slot.label_rect[3] * scale).ceil().max(12.0) as u32;
                 let mut pm = Pixmap::new(pw, ph).unwrap();
                 draw_text_centered(
-                    &mut self.font_system,
+                    font_system,
                     &mut self.swash_cache,
                     &mut pm,
                     &truncate_single_line(&item.name, 16),
@@ -560,7 +560,7 @@ impl FanStackPipeline {
             let ph = (layout.open_button_slot.label_rect[3] * scale).ceil().max(12.0) as u32;
             let mut lpm = Pixmap::new(pw, ph).unwrap();
             draw_text_centered(
-                &mut self.font_system,
+                font_system,
                 &mut self.swash_cache,
                 &mut lpm,
                 &truncate_single_line(&layout.open_button_label, 16),
@@ -654,6 +654,7 @@ impl FanStackPipeline {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        font_system: &mut FontSystem,
         data: &FanStackData,
         layout: &ListLayout,
         canvas_w: u32,
@@ -746,7 +747,7 @@ impl FanStackPipeline {
                     truncate_single_line(&item.name, 32)
                 };
                 draw_text_centered(
-                    &mut self.font_system,
+                    font_system,
                     &mut self.swash_cache,
                     &mut pm,
                     &display_name,
@@ -770,7 +771,7 @@ impl FanStackPipeline {
             let ph = (layout.open_row_rect[3] * scale).ceil().max(12.0) as u32;
             let mut lpm = Pixmap::new(pw, ph).unwrap();
             draw_text_centered(
-                &mut self.font_system,
+                font_system,
                 &mut self.swash_cache,
                 &mut lpm,
                 &truncate_single_line(&layout.open_button_label, 32),
