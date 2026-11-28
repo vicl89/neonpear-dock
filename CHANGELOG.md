@@ -14,36 +14,19 @@ Historial de cambios y evolución de **NeonPear Dock** (anteriormente *Glassdock
 
 ## [0.5.0] - 2026-11-25
 ### Añadido
-- **Fan Stack** estilo macOS acelerado por GPU en las 4 posiciones del dock, traducido a los 9 idiomas soportados.
-- Soporte dinámico de unidades USB montadas mediante `UDisks2`.
-- Metadatos AppStream (`io.github.vicl89.neonpear-dock.metainfo.xml`) para integración con KDE Discover y flujo de GitHub Actions para adjuntar paquetes RPM a los releases.
+- **Fan Stack estilo macOS acelerado por GPU (`wgpu`)**: carpetas fijadas en el dock que se despliegan en abanico a 60 fps con animación *ease-out*, cápsulas de texto rotadas, tamaño dinámico ligado a `icon_size`, soporte en las 4 posiciones y traducción en los 9 idiomas soportados (`i18n`).
+- Soporte dinámico de **unidades USB montadas** vía `UDisks2` con menú contextual para abrir y expulsar.
+- Metadatos **AppStream** (`io.github.vicl89.neonpear-dock.metainfo.xml`) para integración con KDE Discover y flujo de GitHub Actions para adjuntar paquetes RPM a los releases.
 
-### Mejorado
-- Optimización del monitor de papelera ignorando eventos `inotify` no mutantes.
+### Corregido y mejorado
+- Preservación de `pinned_folders` al guardar cambios desde `neonpear-dock-settings`.
+- Reducción de uso de CPU en el monitor de papelera ignorando eventos `inotify` no mutantes.
 
 ## [0.4.0] - 2026-11-24
 ### Añadido
-- Soporte de internacionalización en 9 idiomas con detección automática y respaldo tipográfico CJK/cirílico.
+- Soporte multiidioma (**i18n**) en 9 idiomas: Español (`es`), Inglés (`en`), Francés (`fr`), Italiano (`it`), Portugués (`pt`), Chino (`zh`), Japonés (`ja`), Coreano (`ko`) y Ruso (`ru`), con detección automática del *locale* (`LC_ALL` / `LC_MESSAGES` / `LANG`), selector manual en `neonpear-dock-settings` y respaldo tipográfico CJK/cirílico vía `fc-match`.
 - Bloqueo de instancia única y acción *Salir de NeonPear Dock* en el menú contextual.
-- Empaquetado SRPM con crates *vendored* para Fedora COPR y pipeline CI en GitHub Actions (`cargo test` y `clippy`).
-
-## [0.5.0] - 2026-11-25
-### Added
-- **Fan Stack estilo macOS acelerado por GPU (`wgpu`)**: carpetas fijadas en el dock que se despliegan en abanico a 60 fps con animación *ease-out*, cápsulas de texto rotadas, tamaño dinámico ligado a `icon_size` y soporte completo en las 4 posiciones (Abajo, Arriba, Izquierda y Derecha).
-- Traducción del resumen de elementos del Fan Stack en los 9 idiomas soportados (`i18n`).
-- Soporte dinámico de **unidades USB montadas** vía `UDisks2` con menú contextual para abrir y expulsar.
-- Metadatos **AppStream** (`io.github.vicl89.neonpear-dock.metainfo.xml`) para integración con KDE Discover.
-
-### Fixed
-- Preservación de `pinned_folders` al guardar cambios desde `neonpear-dock-settings`.
-- Reducción de uso de CPU en el *watcher* de la papelera ignorando eventos `inotify` no mutantes.
-
-## [0.4.0] - 2026-11-24
-### Added
-- Soporte multiidioma (**i18n**) en 9 idiomas: Español (`es`), Inglés (`en`), Francés (`fr`), Italiano (`it`), Portugués (`pt`), Chino (`zh`), Japonés (`ja`), Coreano (`ko`) y Ruso (`ru`).
-- Detección automática del *locale* del sistema (`LC_ALL` / `LC_MESSAGES` / `LANG`) y selector manual de idioma en `neonpear-dock-settings`.
-- Respaldo automático de fuentes CJK y cirílicas vía `fc-match` en `dock-settings` (y soporte nativo en `dock-render`).
-- Workflow de GitHub Actions (`CI`) para ejecutar `cargo test --workspace` y `cargo clippy` en cada commit, junto con badge de estado en `README.md`.
+- Empaquetado SRPM con crates *vendored* para Fedora COPR y pipeline CI en GitHub Actions (`cargo test --workspace` y `cargo clippy`) con badge de estado en `README.md`.
 - Tests unitarios ampliados en `dock-core` cubriendo *hit-testing* en las 4 posiciones, magnificación, animación de rebote, auto-ocultado e i18n (12 tests en total).
 
 ## [0.3.0] - 2026-11-24
